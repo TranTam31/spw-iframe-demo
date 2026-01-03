@@ -5,7 +5,5 @@ export function sendToHost(msg: WidgetMessage) {
 }
 
 export function listenFromHost(handler: (msg: WidgetMessage) => void) {
-  window.addEventListener("message", (e) => {
-    handler(e.data);
-  });
+  window.addEventListener("message", (e) => handler(e.data));
 }
