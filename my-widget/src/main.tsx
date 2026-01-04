@@ -1,18 +1,12 @@
-// import React from "react";
 import ReactDOM from "react-dom/client";
-// import { useState, useEffect } from "react";
-// import { CountdownWidget } from "./CountdownWidget";
-// import { initWidget } from "./widget-runtime";
-
-// countdown-widget/src/App.tsx
 import { useEffect, useState } from "react";
 import { WidgetSDK, WidgetDefinition } from "widget-sdk";
-// import { RotateCcw } from "lucide-react";
+import "./index.css";
 
 const widgetDefinition: WidgetDefinition = {
   name: "Đồng hồ đếm ngược",
   defaultConfig: {
-    title: "Tập trung nào!",
+    title: "Tập trung nào!!",
     duration: 60,
     timerColor: "#1f2937",
   },
@@ -78,14 +72,11 @@ function App() {
           }}
           className="p-3 bg-gray-200 text-gray-600 rounded-full hover:bg-gray-300 transition-colors"
         >
-          {/* <RotateCcw size={24} /> */}
           Lại
         </button>
       </div>
     </div>
   );
 }
-
-export default App;
 
 ReactDOM.createRoot(document.getElementById("root")!).render(<App />);

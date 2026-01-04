@@ -18,8 +18,7 @@ const AVAILABLE_WIDGETS: WidgetInfo[] = [
   {
     id: "countdown",
     name: "Đồng hồ đếm ngược",
-    url: "http://localhost:5174", // URL của countdown-widget khi chạy dev
-    // Khi deploy: url: 'https://countdown-widget.vercel.app'
+    url: "http://localhost:5174",
   },
   // Người dùng thêm widget khác vào đây
 ];
@@ -184,32 +183,6 @@ export default function App() {
               </p>
             </button>
           ))}
-        </div>
-
-        <div className="mt-16 p-8 bg-white rounded-2xl shadow-lg border border-gray-100">
-          <h2 className="text-2xl font-bold text-gray-800 mb-4">
-            🏗️ Cấu trúc project
-          </h2>
-          <div className="space-y-3 text-sm font-mono">
-            <div className="p-3 bg-gray-50 rounded">
-              <div className="text-indigo-600 font-bold">widget-sdk/</div>
-              <div className="ml-4 text-gray-600">
-                └─ SDK TypeScript package
-              </div>
-            </div>
-            <div className="p-3 bg-gray-50 rounded">
-              <div className="text-green-600 font-bold">countdown-widget/</div>
-              <div className="ml-4 text-gray-600">
-                └─ Vite project (port 5174)
-              </div>
-            </div>
-            <div className="p-3 bg-gray-50 rounded">
-              <div className="text-purple-600 font-bold">host-app/</div>
-              <div className="ml-4 text-gray-600">
-                └─ Vite project (port 5173)
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </div>
