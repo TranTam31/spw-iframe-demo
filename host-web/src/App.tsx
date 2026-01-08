@@ -319,7 +319,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center p-6">
       <div className="max-w-5xl w-full">
-        <header className="text-center mb-16">
+        {/* <header className="text-center mb-16">
           <h1 className="text-5xl font-black text-gray-900 mb-4 tracking-tight">
             Widget Studio
           </h1>
@@ -329,7 +329,7 @@ export default function App() {
           <p className="text-sm text-green-600 font-mono">
             ✓ Fluent API • No eval() • Auto UI generation
           </p>
-        </header>
+        </header> */}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {AVAILABLE_WIDGETS.map((widget) => (
@@ -344,50 +344,6 @@ export default function App() {
               <h3 className="text-xl font-bold text-gray-800">{widget.name}</h3>
             </button>
           ))}
-        </div>
-
-        <div className="mt-16 p-8 bg-white rounded-2xl shadow-lg border border-gray-100">
-          <h2 className="text-2xl font-bold text-gray-800 mb-4">
-            🎮 Unity-like Architecture
-          </h2>
-          <div className="space-y-3 text-sm">
-            <div className="flex items-start gap-2">
-              <span className="font-bold text-purple-600">Widget Dev:</span>
-              <span className="text-gray-600">
-                Define parameters với fluent API (param.string(),
-                param.number()...)
-              </span>
-            </div>
-            <div className="flex items-start gap-2">
-              <span className="font-bold text-blue-600">Teacher:</span>
-              <span className="text-gray-600">
-                Configure parameters qua auto-generated Tweakpane UI
-              </span>
-            </div>
-            <div className="flex items-start gap-2">
-              <span className="font-bold text-green-600">Student:</span>
-              <span className="text-gray-600">
-                Học với widget đã được config (immutable)
-              </span>
-            </div>
-          </div>
-
-          <div className="mt-6 p-4 bg-gray-50 rounded-xl font-mono text-xs">
-            <div className="text-gray-500 mb-2">
-              // Example widget definition:
-            </div>
-            <div className="text-indigo-600">parameters: {"{"}</div>
-            <div className="ml-4 text-gray-700">
-              title: param.string('Hello').label('Tiêu đề'),
-            </div>
-            <div className="ml-4 text-gray-700">
-              duration: param.number(60).min(5).max(600),
-            </div>
-            <div className="ml-4 text-gray-700">
-              color: param.color('#1f2937'),
-            </div>
-            <div className="text-indigo-600">{"}"}</div>
-          </div>
         </div>
       </div>
     </div>

@@ -9,10 +9,11 @@ import {
   folder,
   useWidgetParams,
   WidgetRuntime,
+  ExtractParams,
 } from "widget-sdk";
 
 // ============================================================
-// WIDGET DEFINITION - Giống Unity Inspector
+// WIDGET DEFINITION - Define 1 lần duy nhất
 // ============================================================
 
 const widgetDefinition = defineWidget({
@@ -21,7 +22,7 @@ const widgetDefinition = defineWidget({
   description: "Widget đếm ngược thời gian với khả năng tùy chỉnh đầy đủ",
 
   parameters: {
-    // Basic settings
+    // Top-level parameters
     title: param
       .string("Tập trung nào!")
       .label("Tiêu đề")
@@ -41,7 +42,7 @@ const widgetDefinition = defineWidget({
 
     showMilliseconds: param.boolean(false).label("Hiện mili giây"),
 
-    // Appearance folder
+    // Appearance folder - nested
     appearance: folder("Giao diện", {
       timerColor: param.color("#1f2937").label("Màu chữ đồng hồ"),
 
@@ -50,7 +51,7 @@ const widgetDefinition = defineWidget({
       buttonColor: param.color("#000000").label("Màu nút"),
     }).expanded(true),
 
-    // Advanced folder
+    // Advanced folder - nested
     advanced: folder("Nâng cao", {
       enableSound: param.boolean(false).label("Bật âm thanh"),
 
@@ -59,33 +60,52 @@ const widgetDefinition = defineWidget({
         .label("Thông báo hoàn thành"),
     }).expanded(false),
   },
-});
+} as const); // ← 'as const' để preserve literal types
 
 // Send definition to host
 setTimeout(() => {
   WidgetRuntime.sendToHost({
     type: "WIDGET_READY",
-    payload: widgetDefinition,
+    payload: {
+      name: widgetDefinition.name,
+      version: widgetDefinition.version,
+      description: widgetDefinition.description,
+      schema: widgetDefinition.flatSchema,
+      defaults: widgetDefinition.flatDefaults,
+    },
   });
 }, 100);
+
+// ============================================================
+// TYPE INFERENCE - Compile-time type extraction!
+// ============================================================
+
+// ⭐ Extract type từ parameter definition (compile-time)
+type WidgetParams = ExtractParams<typeof widgetDefinition>;
+
+// TypeScript sẽ infer:
+// {
+//   title: string;
+//   duration: number;
+//   autoStart: boolean;
+//   showMilliseconds: boolean;
+//   appearance: {
+//     timerColor: string;
+//     backgroundColor: string;
+//     buttonColor: string;
+//   };
+//   advanced: {
+//     enableSound: boolean;
+//     completionMessage: string;
+//   };
+// }
 
 // ============================================================
 // WIDGET COMPONENT
 // ============================================================
 
-type WidgetParams = {
-  title: string;
-  duration: number;
-  autoStart: boolean;
-  showMilliseconds: boolean;
-  "appearance.timerColor": string;
-  "appearance.backgroundColor": string;
-  "appearance.buttonColor": string;
-  "advanced.enableSound": boolean;
-  "advanced.completionMessage": string;
-};
-
 function App() {
+  // ⭐ Params có full autocomplete!
   const params = useWidgetParams<WidgetParams>();
 
   const [time, setTime] = useState(60);
@@ -94,15 +114,15 @@ function App() {
   // Initialize with params
   useEffect(() => {
     if (!params) return;
-    setTime(params.duration);
-    setRunning(params.autoStart);
+    setTime(params.duration); // ← Autocomplete works!
+    setRunning(params.autoStart); // ← Autocomplete works!
   }, [params?.duration, params?.autoStart]);
 
   // Countdown logic
   useEffect(() => {
     if (!running || time <= 0) return;
 
-    const interval = params?.showMilliseconds ? 10 : 1000;
+    const interval = params?.showMilliseconds ? 10 : 1000; // ← Autocomplete!
     const decrement = params?.showMilliseconds ? 0.01 : 1;
 
     const id = setInterval(() => {
@@ -110,14 +130,15 @@ function App() {
         const newTime = Math.max(0, t - decrement);
         if (newTime === 0) {
           setRunning(false);
-          // Emit event to host
+
+          // Emit event
           WidgetRuntime.emitEvent("onComplete", {
             duration: params?.duration,
           });
 
           // Play sound if enabled
-          if (params?.["advanced.enableSound"]) {
-            // Play beep sound (simple implementation)
+          if (params?.advanced.enableSound) {
+            // ← Autocomplete: params.advanced.
             const audioContext = new (window.AudioContext ||
               (window as any).webkitAudioContext)();
             const oscillator = audioContext.createOscillator();
@@ -147,6 +168,7 @@ function App() {
     ).padStart(2, "0")}`;
 
     if (params.showMilliseconds) {
+      // ← Autocomplete!
       return `${timeStr}.${String(milliseconds).padStart(2, "0")}`;
     }
 
@@ -164,13 +186,15 @@ function App() {
   return (
     <div
       className="flex flex-col items-center justify-center min-h-screen p-8 text-center"
-      style={{ backgroundColor: params["appearance.backgroundColor"] }}
+      style={{ backgroundColor: params.appearance.backgroundColor }}
     >
-      <h2 className="text-xl text-gray-500 mb-2 font-medium">{params.title}</h2>
+      <h2 className="text-xl text-gray-500 mb-2 font-medium">
+        {params.title} {/* ← Autocomplete! */}
+      </h2>
 
       <div
         className="text-8xl font-black mb-10 tabular-nums"
-        style={{ color: params["appearance.timerColor"] }}
+        style={{ color: params.appearance.timerColor }}
       >
         {formatTime()}
       </div>
@@ -182,7 +206,7 @@ function App() {
           className="px-8 py-3 text-white rounded-full font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           style={{
             backgroundColor:
-              time === 0 ? "#gray" : params["appearance.buttonColor"],
+              time === 0 ? "#9ca3af" : params.appearance.buttonColor, // ← Autocomplete!
           }}
         >
           {running ? "Tạm dừng" : "Bắt đầu"}
@@ -202,7 +226,7 @@ function App() {
 
       {time === 0 && (
         <div className="mt-8 text-2xl font-bold text-green-600 animate-pulse">
-          {params["advanced.completionMessage"]}
+          {params.advanced.completionMessage}
         </div>
       )}
     </div>
