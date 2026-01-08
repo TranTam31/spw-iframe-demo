@@ -21,99 +21,165 @@ interface WidgetInfo {
 }
 
 // ============================================================
+// HELPER: Flat to Nested conversion
+// ============================================================
+
+function flatToNested(flat: Record<string, any>): Record<string, any> {
+  const nested: Record<string, any> = {};
+
+  Object.keys(flat).forEach((key) => {
+    const parts = key.split(".");
+    let current = nested;
+
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (!current[parts[i]]) {
+        current[parts[i]] = {};
+      }
+      current = current[parts[i]];
+    }
+
+    current[parts[parts.length - 1]] = flat[key];
+  });
+
+  return nested;
+}
+
+// ============================================================
+// HELPER: Nested to Flat conversion
+// ============================================================
+
+function nestedToFlat(
+  nested: Record<string, any>,
+  prefix = ""
+): Record<string, any> {
+  const flat: Record<string, any> = {};
+
+  Object.keys(nested).forEach((key) => {
+    const fullKey = prefix ? `${prefix}.${key}` : key;
+    const value = nested[key];
+
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+      Object.assign(flat, nestedToFlat(value, fullKey));
+    } else {
+      flat[fullKey] = value;
+    }
+  });
+
+  return flat;
+}
+
+// ============================================================
 // GENERIC TWEAKPANE SCHEMA PARSER
 // ============================================================
 
 class TweakpaneSchemaParser {
   private pane: any;
-  private config: Record<string, any>;
-  private onChange: (config: Record<string, any>) => void;
+  private config: Record<string, any>; // Nested structure
+  private onChange: (flatConfig: Record<string, any>) => void;
   private folders: Map<string, any> = new Map();
 
   constructor(
     pane: any,
     config: Record<string, any>,
-    onChange: (config: Record<string, any>) => void
+    onChange: (flatConfig: Record<string, any>) => void
   ) {
     this.pane = pane;
-    this.config = config;
+    this.config = config; // Store as nested
     this.onChange = onChange;
   }
 
   parse(schema: Record<string, any>) {
-    // Group fields by folder
-    const grouped: Record<string, any[]> = { _root: [] };
-
+    // Render root level first
     Object.keys(schema).forEach((key) => {
       const field = schema[key];
 
-      if (field.type === "folder") {
-        grouped[key] = [];
-        // Add folder itself
-        grouped._root.push({ key, field, isFolder: true });
-      } else {
-        // Check if field belongs to a folder
-        const folderKey = key.split(".")[0];
-        if (schema[folderKey] && schema[folderKey].type === "folder") {
-          if (!grouped[folderKey]) grouped[folderKey] = [];
-          grouped[folderKey].push({ key, field });
+      // Only process top-level items (no dots in key)
+      if (!key.includes(".")) {
+        if (field.type === "folder") {
+          this.addFolder(key, field, this.pane, [key]);
         } else {
-          grouped._root.push({ key, field });
+          this.addField([key], field, this.pane);
         }
-      }
-    });
-
-    // Render root level fields and folders
-    grouped._root.forEach(({ key, field, isFolder }) => {
-      if (isFolder) {
-        this.addFolder(key, field, grouped[key] || []);
-      } else {
-        this.addField(key, field, this.pane);
       }
     });
 
     // Listen to all changes
     this.pane.on("change", () => {
-      this.onChange({ ...this.config });
+      // Convert nested back to flat for sending to widget
+      const flatConfig = nestedToFlat(this.config);
+      this.onChange(flatConfig);
     });
   }
 
-  private addFolder(key: string, folderSchema: any, fields: any[]) {
-    const folder = this.pane.addFolder({
+  private addFolder(
+    folderKey: string,
+    folderSchema: any,
+    parentPane: any,
+    path: string[]
+  ) {
+    const folder = parentPane.addFolder({
       title: folderSchema.title,
       expanded: folderSchema.expanded ?? true,
     });
 
-    this.folders.set(key, folder);
+    this.folders.set(path.join("."), folder);
 
-    fields.forEach(({ key: fieldKey, field }) => {
-      this.addField(fieldKey, field, folder);
-    });
+    // Process fields inside folder.fields (nested structure)
+    if (folderSchema.fields) {
+      Object.keys(folderSchema.fields).forEach((fieldKey) => {
+        const field = folderSchema.fields[fieldKey];
+        const newPath = [...path, fieldKey];
+
+        if (field.type === "folder") {
+          // Recursively add nested folder
+          this.addFolder(fieldKey, field, folder, newPath);
+        } else {
+          // Add field to this folder
+          this.addField(newPath, field, folder);
+        }
+      });
+    }
   }
 
-  private addField(key: string, field: any, target: any) {
+  private addField(path: string[], field: any, target: any) {
     const options: any = {
-      label: field.label || key.split(".").pop(),
+      label: field.label || path[path.length - 1],
     };
+
+    // Navigate to the correct nested level
+    let obj = this.config;
+    for (let i = 0; i < path.length - 1; i++) {
+      if (!obj[path[i]]) {
+        obj[path[i]] = {};
+      }
+      obj = obj[path[i]];
+    }
+
+    const key = path[path.length - 1];
+
+    // Set default value if not exists
+    if (obj[key] === undefined && field.default !== undefined) {
+      obj[key] = field.default;
+    }
 
     switch (field.type) {
       case "string":
-        target.addBinding(this.config, key, options);
+        target.addBinding(obj, key, options);
         break;
 
       case "number":
         if (field.min !== undefined) options.min = field.min;
         if (field.max !== undefined) options.max = field.max;
         if (field.step !== undefined) options.step = field.step;
-        target.addBinding(this.config, key, options);
+        target.addBinding(obj, key, options);
         break;
 
       case "boolean":
-        target.addBinding(this.config, key, options);
+        target.addBinding(obj, key, options);
         break;
 
       case "color":
-        target.addBinding(this.config, key, options);
+        target.addBinding(obj, key, options);
         break;
 
       case "select":
@@ -124,7 +190,7 @@ class TweakpaneSchemaParser {
           }, {});
           options.options = selectOptions;
         }
-        target.addBinding(this.config, key, options);
+        target.addBinding(obj, key, options);
         break;
 
       default:
@@ -163,6 +229,7 @@ function WidgetHost({
           return;
         }
 
+        console.log("📦 Widget definition:", def);
         setWidgetDef(def);
         setConfig(def.defaults);
         setError(null);
@@ -193,17 +260,20 @@ function WidgetHost({
       });
       paneInstanceRef.current = pane;
 
-      const configProxy = { ...widgetDef.defaults };
+      // Convert flat defaults to nested structure for Tweakpane
+      const nestedConfig = flatToNested(widgetDef.defaults);
+      console.log("🔄 Nested config:", nestedConfig);
 
-      const onChange = (newConfig: Record<string, any>) => {
-        setConfig(newConfig);
+      const onChange = (flatConfig: Record<string, any>) => {
+        console.log("📤 Sending to widget:", flatConfig);
+        setConfig(flatConfig);
 
         // Send to widget iframe
         if (iframeRef.current?.contentWindow) {
           iframeRef.current.contentWindow.postMessage(
             {
               type: "PARAMS_UPDATE",
-              payload: newConfig,
+              payload: flatConfig,
             },
             "*"
           );
@@ -211,8 +281,12 @@ function WidgetHost({
       };
 
       // ⭐ Parse schema and auto-generate Tweakpane UI
-      const parser = new TweakpaneSchemaParser(pane, configProxy, onChange);
+      const parser = new TweakpaneSchemaParser(pane, nestedConfig, onChange);
       parser.parse(widgetDef.schema);
+
+      // Send initial config to widget
+      const initialFlat = nestedToFlat(nestedConfig);
+      setTimeout(() => onChange(initialFlat), 100);
     } catch (err) {
       console.error("Tweakpane setup error:", err);
       setError(err instanceof Error ? err.message : "Setup failed");
@@ -319,7 +393,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center p-6">
       <div className="max-w-5xl w-full">
-        {/* <header className="text-center mb-16">
+        <header className="text-center mb-16">
           <h1 className="text-5xl font-black text-gray-900 mb-4 tracking-tight">
             Widget Studio
           </h1>
@@ -327,9 +401,9 @@ export default function App() {
             Unity-inspired parameter system cho Education
           </p>
           <p className="text-sm text-green-600 font-mono">
-            ✓ Fluent API • No eval() • Auto UI generation
+            ✓ Fluent API • No eval() • Auto UI generation • Nested Folders
           </p>
-        </header> */}
+        </header>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {AVAILABLE_WIDGETS.map((widget) => (

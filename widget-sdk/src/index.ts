@@ -94,13 +94,13 @@ class SelectParam<T> extends BaseParam<T> {
   }
 }
 
-class FolderParam {
-  readonly _type = "folder" as const; // ← Add type marker
+class FolderParam<F extends Record<string, any>> {
+  readonly _type = "folder" as const;
   private title: string;
-  public readonly fields: Record<string, any>;
+  public readonly fields: F; // ✅ giữ literal type
   private isExpanded: boolean;
 
-  constructor(title: string, fields: Record<string, any>) {
+  constructor(title: string, fields: F) {
     this.title = title;
     this.fields = fields;
     this.isExpanded = true;
@@ -141,8 +141,11 @@ export const param = {
     new SelectParam(options, defaultValue),
 };
 
-export function folder(title: string, fields: Record<string, any>) {
-  return new FolderParam(title, fields);
+export function folder<const F extends Record<string, any>>(
+  title: string,
+  fields: F
+) {
+  return new FolderParam<F>(title, fields);
 }
 
 // ============================================================

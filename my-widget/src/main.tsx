@@ -44,11 +44,21 @@ const widgetDefinition = defineWidget({
 
     // Appearance folder - nested
     appearance: folder("Giao diện", {
-      timerColor: param.color("#1f2937").label("Màu chữ đồng hồ"),
+      // Folder cấp 2: colors
+      colors: folder("Màu sắc", {
+        timerColor: param.color("#1f2937").label("Màu chữ đồng hồ"),
 
-      backgroundColor: param.color("#ffffff").label("Màu nền"),
+        backgroundColor: param.color("#ffffff").label("Màu nền"),
 
-      buttonColor: param.color("#000000").label("Màu nút"),
+        buttonColor: param.color("#000000").label("Màu nút"),
+      }),
+
+      // Folder cấp 2: layout
+      layout: folder("Bố cục", {
+        fontSize: param.number(80).min(24).max(200).label("Cỡ chữ"),
+
+        padding: param.number(16).min(0).max(64).label("Padding"),
+      }),
     }).expanded(true),
 
     // Advanced folder - nested
@@ -186,7 +196,7 @@ function App() {
   return (
     <div
       className="flex flex-col items-center justify-center min-h-screen p-8 text-center"
-      style={{ backgroundColor: params.appearance.backgroundColor }}
+      style={{ backgroundColor: params.appearance.colors.backgroundColor }}
     >
       <h2 className="text-xl text-gray-500 mb-2 font-medium">
         {params.title} {/* ← Autocomplete! */}
@@ -194,7 +204,7 @@ function App() {
 
       <div
         className="text-8xl font-black mb-10 tabular-nums"
-        style={{ color: params.appearance.timerColor }}
+        style={{ color: params.appearance.colors.timerColor }}
       >
         {formatTime()}
       </div>
@@ -206,7 +216,7 @@ function App() {
           className="px-8 py-3 text-white rounded-full font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           style={{
             backgroundColor:
-              time === 0 ? "#9ca3af" : params.appearance.buttonColor, // ← Autocomplete!
+              time === 0 ? "#9ca3af" : params.appearance.colors.buttonColor, // ← Autocomplete!
           }}
         >
           {running ? "Tạm dừng" : "Bắt đầu"}
