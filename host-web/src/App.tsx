@@ -1,18 +1,18 @@
 import { useState, useEffect, useRef } from "react";
 import { Pane } from "tweakpane";
 import { ArrowLeft, Settings, AlertCircle } from "lucide-react";
-import type {
-  BooleanFieldSchema,
-  ColorFieldSchema,
-  ConfigFieldSchema,
-  FolderSchema,
-  NumberFieldSchema,
-  PointFieldSchema,
-  SelectFieldSchema,
-  StringFieldSchema,
-  WidgetConfig,
-  WidgetDefinition,
-} from "widget-sdk";
+
+// ============================================================
+// TYPES
+// ============================================================
+
+interface WidgetDefinition {
+  name: string;
+  version: string;
+  description?: string;
+  schema: Record<string, any>;
+  defaults: Record<string, any>;
+}
 
 interface WidgetInfo {
   name: string;
@@ -21,30 +21,55 @@ interface WidgetInfo {
 }
 
 // ============================================================
-// SCHEMA PARSER - Tự động tạo Tweakpane từ schema
+// GENERIC TWEAKPANE SCHEMA PARSER
 // ============================================================
 
 class TweakpaneSchemaParser {
   private pane: any;
-  private config: WidgetConfig;
-  private onChange: (newConfig: WidgetConfig) => void;
+  private config: Record<string, any>;
+  private onChange: (config: Record<string, any>) => void;
+  private folders: Map<string, any> = new Map();
 
   constructor(
     pane: any,
-    config: WidgetConfig,
-    onChange: (newConfig: WidgetConfig) => void
+    config: Record<string, any>,
+    onChange: (config: Record<string, any>) => void
   ) {
     this.pane = pane;
     this.config = config;
     this.onChange = onChange;
   }
 
-  /**
-   * Parse toàn bộ schema và tạo Tweakpane controls
-   */
-  public parse(schema: ConfigFieldSchema[]): void {
-    schema.forEach((field) => {
-      this.parseField(field, this.pane);
+  parse(schema: Record<string, any>) {
+    // Group fields by folder
+    const grouped: Record<string, any[]> = { _root: [] };
+
+    Object.keys(schema).forEach((key) => {
+      const field = schema[key];
+
+      if (field.type === "folder") {
+        grouped[key] = [];
+        // Add folder itself
+        grouped._root.push({ key, field, isFolder: true });
+      } else {
+        // Check if field belongs to a folder
+        const folderKey = key.split(".")[0];
+        if (schema[folderKey] && schema[folderKey].type === "folder") {
+          if (!grouped[folderKey]) grouped[folderKey] = [];
+          grouped[folderKey].push({ key, field });
+        } else {
+          grouped._root.push({ key, field });
+        }
+      }
+    });
+
+    // Render root level fields and folders
+    grouped._root.forEach(({ key, field, isFolder }) => {
+      if (isFolder) {
+        this.addFolder(key, field, grouped[key] || []);
+      } else {
+        this.addField(key, field, this.pane);
+      }
     });
 
     // Listen to all changes
@@ -53,120 +78,58 @@ class TweakpaneSchemaParser {
     });
   }
 
-  /**
-   * Parse từng field schema
-   */
-  private parseField(field: ConfigFieldSchema, parentPane: any): void {
+  private addFolder(key: string, folderSchema: any, fields: any[]) {
+    const folder = this.pane.addFolder({
+      title: folderSchema.title,
+      expanded: folderSchema.expanded ?? true,
+    });
+
+    this.folders.set(key, folder);
+
+    fields.forEach(({ key: fieldKey, field }) => {
+      this.addField(fieldKey, field, folder);
+    });
+  }
+
+  private addField(key: string, field: any, target: any) {
+    const options: any = {
+      label: field.label || key.split(".").pop(),
+    };
+
     switch (field.type) {
-      case "folder":
-        this.parseFolder(field, parentPane);
-        break;
       case "string":
-        this.parseString(field, parentPane);
+        target.addBinding(this.config, key, options);
         break;
+
       case "number":
-        this.parseNumber(field, parentPane);
+        if (field.min !== undefined) options.min = field.min;
+        if (field.max !== undefined) options.max = field.max;
+        if (field.step !== undefined) options.step = field.step;
+        target.addBinding(this.config, key, options);
         break;
+
       case "boolean":
-        this.parseBoolean(field, parentPane);
+        target.addBinding(this.config, key, options);
         break;
+
       case "color":
-        this.parseColor(field, parentPane);
+        target.addBinding(this.config, key, options);
         break;
+
       case "select":
-        this.parseSelect(field, parentPane);
+        if (field.options) {
+          const selectOptions = field.options.reduce((acc: any, opt: any) => {
+            acc[opt] = opt;
+            return acc;
+          }, {});
+          options.options = selectOptions;
+        }
+        target.addBinding(this.config, key, options);
         break;
-      case "point":
-        this.parsePoint(field, parentPane);
-        break;
+
       default:
-        console.warn(`Unknown field type: ${(field as any).type}`);
+        console.warn(`Unknown field type: ${field.type}`);
     }
-  }
-
-  /**
-   * Parse folder (nhóm fields)
-   */
-  private parseFolder(field: FolderSchema, parentPane: any): void {
-    const folder = parentPane.addFolder({
-      title: field.title,
-      expanded: field.expanded ?? true,
-    });
-
-    field.fields.forEach((childField) => {
-      this.parseField(childField, folder);
-    });
-  }
-
-  /**
-   * Parse string input
-   */
-  private parseString(field: StringFieldSchema, parentPane: any): void {
-    parentPane.addBinding(this.config, field.key, {
-      label: field.label || field.key,
-    });
-  }
-
-  /**
-   * Parse number input
-   */
-  private parseNumber(field: NumberFieldSchema, parentPane: any): void {
-    const options: any = {
-      label: field.label || field.key,
-    };
-
-    if (field.min !== undefined) options.min = field.min;
-    if (field.max !== undefined) options.max = field.max;
-    if (field.step !== undefined) options.step = field.step;
-
-    parentPane.addBinding(this.config, field.key, options);
-  }
-
-  /**
-   * Parse boolean toggle
-   */
-  private parseBoolean(field: BooleanFieldSchema, parentPane: any): void {
-    parentPane.addBinding(this.config, field.key, {
-      label: field.label || field.key,
-    });
-  }
-
-  /**
-   * Parse color picker
-   */
-  private parseColor(field: ColorFieldSchema, parentPane: any): void {
-    parentPane.addBinding(this.config, field.key, {
-      label: field.label || field.key,
-    });
-  }
-
-  /**
-   * Parse select/dropdown
-   */
-  private parseSelect(field: SelectFieldSchema, parentPane: any): void {
-    const options = field.options.reduce((acc, opt) => {
-      acc[opt.text] = opt.value;
-      return acc;
-    }, {} as Record<string, string | number>);
-
-    parentPane.addBinding(this.config, field.key, {
-      label: field.label || field.key,
-      options: options,
-    });
-  }
-
-  /**
-   * Parse 2D point
-   */
-  private parsePoint(field: PointFieldSchema, parentPane: any): void {
-    const options: any = {
-      label: field.label || field.key,
-    };
-
-    if (field.min !== undefined) options.min = field.min;
-    if (field.max !== undefined) options.max = field.max;
-
-    parentPane.addBinding(this.config, field.key, options);
   }
 }
 
@@ -182,35 +145,31 @@ function WidgetHost({
   onExit: () => void;
 }) {
   const [widgetDef, setWidgetDef] = useState<WidgetDefinition | null>(null);
-  const [config, setConfig] = useState<WidgetConfig>({});
+  const [config, setConfig] = useState<Record<string, any>>({});
   const [error, setError] = useState<string | null>(null);
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const paneRef = useRef<HTMLDivElement>(null);
   const paneInstanceRef = useRef<any>(null);
 
-  // Lắng nghe message từ widget iframe
+  // Listen to widget messages
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      // TODO: Validate event.origin cho security
-      // if (event.origin !== widget.url) return;
-
       if (event.data.type === "WIDGET_READY") {
         const def = event.data.payload;
 
-        // Validate definition
-        if (!def.name || !def.defaultConfig || !def.configSchema) {
-          setError("Invalid widget definition received");
+        if (!def.name || !def.schema || !def.defaults) {
+          setError("Invalid widget definition");
           return;
         }
 
         setWidgetDef(def);
-        setConfig(def.defaultConfig);
+        setConfig(def.defaults);
         setError(null);
       }
 
-      if (event.data.type === "WIDGET_ERROR") {
-        setError(event.data.payload.message);
+      if (event.data.type === "EVENT") {
+        console.log("Widget event:", event.data.event, event.data.payload);
       }
     };
 
@@ -218,35 +177,32 @@ function WidgetHost({
     return () => window.removeEventListener("message", handleMessage);
   }, []);
 
-  // Setup Tweakpane khi có widget definition
+  // Setup Tweakpane when widget definition is ready
   useEffect(() => {
     if (!widgetDef || !paneRef.current) return;
 
-    // Dispose pane cũ nếu có
+    // Dispose old pane
     if (paneInstanceRef.current) {
       paneInstanceRef.current.dispose();
     }
 
     try {
-      // Tạo Tweakpane instance
       const pane = new Pane({
         container: paneRef.current,
         title: widgetDef.name,
       });
       paneInstanceRef.current = pane;
 
-      // Tạo config proxy cho Tweakpane binding
-      const configProxy = { ...widgetDef.defaultConfig };
+      const configProxy = { ...widgetDef.defaults };
 
-      // Callback khi config thay đổi
-      const onChange = (newConfig: WidgetConfig) => {
+      const onChange = (newConfig: Record<string, any>) => {
         setConfig(newConfig);
 
-        // Gửi config xuống iframe
+        // Send to widget iframe
         if (iframeRef.current?.contentWindow) {
           iframeRef.current.contentWindow.postMessage(
             {
-              type: "CONFIG_UPDATE",
+              type: "PARAMS_UPDATE",
               payload: newConfig,
             },
             "*"
@@ -254,12 +210,12 @@ function WidgetHost({
         }
       };
 
-      // ⭐ MAGIC: Parse schema và tự động tạo Tweakpane controls
+      // ⭐ Parse schema and auto-generate Tweakpane UI
       const parser = new TweakpaneSchemaParser(pane, configProxy, onChange);
-      parser.parse(widgetDef.configSchema);
+      parser.parse(widgetDef.schema);
     } catch (err) {
-      console.error("Error setting up Tweakpane:", err);
-      setError(err instanceof Error ? err.message : "Failed to setup controls");
+      console.error("Tweakpane setup error:", err);
+      setError(err instanceof Error ? err.message : "Setup failed");
     }
 
     return () => {
@@ -277,7 +233,7 @@ function WidgetHost({
           onClick={onExit}
           className="flex items-center gap-2 text-gray-500 mb-8 hover:text-black transition-colors"
         >
-          <ArrowLeft size={20} /> Quay lại danh sách
+          <ArrowLeft size={20} /> Quay lại
         </button>
 
         <div className="max-w-2xl mx-auto bg-white rounded-[2rem] shadow-2xl overflow-hidden border border-gray-100">
@@ -293,7 +249,7 @@ function WidgetHost({
         {!widgetDef && !error && (
           <div className="text-center mt-8 text-gray-400 flex items-center justify-center gap-2">
             <div className="animate-spin h-5 w-5 border-2 border-gray-300 border-t-gray-600 rounded-full" />
-            Đang tải widget từ {widget.url}...
+            Đang tải widget...
           </div>
         )}
 
@@ -304,7 +260,7 @@ function WidgetHost({
               size={20}
             />
             <div>
-              <div className="font-bold text-red-800">Widget Error</div>
+              <div className="font-bold text-red-800">Error</div>
               <div className="text-sm text-red-600 mt-1">{error}</div>
             </div>
           </div>
@@ -316,13 +272,11 @@ function WidgetHost({
 
         {widgetDef && (
           <div className="mt-4 space-y-2">
-            <div className="p-3 bg-gray-50 rounded-xl text-xs text-gray-600">
-              <div className="font-bold">{widgetDef.name}</div>
-              {widgetDef.version && (
-                <div className="text-gray-400">v{widgetDef.version}</div>
-              )}
+            <div className="p-3 bg-gray-50 rounded-xl text-xs">
+              <div className="font-bold text-gray-800">{widgetDef.name}</div>
+              <div className="text-gray-400">v{widgetDef.version}</div>
               {widgetDef.description && (
-                <div className="mt-1 text-gray-500">
+                <div className="mt-1 text-gray-600">
                   {widgetDef.description}
                 </div>
               )}
@@ -345,10 +299,9 @@ const AVAILABLE_WIDGETS: WidgetInfo[] = [
   {
     id: "countdown",
     name: "Đồng hồ đếm ngược",
-    url: "http://localhost:5174", // Dev
+    url: "http://localhost:5174", // Dev mode
     // url: 'https://countdown-widget.vercel.app', // Production
   },
-  // Người dùng thêm widget khác vào đây
 ];
 
 export default function App() {
@@ -371,10 +324,10 @@ export default function App() {
             Widget Studio
           </h1>
           <p className="text-gray-500 mb-2">
-            Generic schema-based Tweakpane configuration
+            Unity-inspired parameter system cho Education
           </p>
           <p className="text-sm text-green-600 font-mono">
-            ✓ Secure • No eval() • Automatic control generation
+            ✓ Fluent API • No eval() • Auto UI generation
           </p>
         </header>
 
@@ -389,36 +342,51 @@ export default function App() {
                 <Settings className="text-indigo-600" size={32} />
               </div>
               <h3 className="text-xl font-bold text-gray-800">{widget.name}</h3>
-              <p className="text-xs text-gray-400 mt-2 font-mono truncate w-full">
-                {widget.url}
-              </p>
             </button>
           ))}
         </div>
 
         <div className="mt-16 p-8 bg-white rounded-2xl shadow-lg border border-gray-100">
           <h2 className="text-2xl font-bold text-gray-800 mb-4">
-            🎯 Schema-based Architecture
+            🎮 Unity-like Architecture
           </h2>
           <div className="space-y-3 text-sm">
             <div className="flex items-start gap-2">
-              <span className="font-bold text-green-600">✓ Secure:</span>
+              <span className="font-bold text-purple-600">Widget Dev:</span>
               <span className="text-gray-600">
-                No eval(), no remote code execution
+                Define parameters với fluent API (param.string(),
+                param.number()...)
               </span>
             </div>
             <div className="flex items-start gap-2">
-              <span className="font-bold text-blue-600">✓ Generic:</span>
+              <span className="font-bold text-blue-600">Teacher:</span>
               <span className="text-gray-600">
-                TweakpaneSchemaParser tự động tạo controls từ schema
+                Configure parameters qua auto-generated Tweakpane UI
               </span>
             </div>
             <div className="flex items-start gap-2">
-              <span className="font-bold text-purple-600">✓ Extensible:</span>
+              <span className="font-bold text-green-600">Student:</span>
               <span className="text-gray-600">
-                Support string, number, boolean, color, select, point, folder
+                Học với widget đã được config (immutable)
               </span>
             </div>
+          </div>
+
+          <div className="mt-6 p-4 bg-gray-50 rounded-xl font-mono text-xs">
+            <div className="text-gray-500 mb-2">
+              // Example widget definition:
+            </div>
+            <div className="text-indigo-600">parameters: {"{"}</div>
+            <div className="ml-4 text-gray-700">
+              title: param.string('Hello').label('Tiêu đề'),
+            </div>
+            <div className="ml-4 text-gray-700">
+              duration: param.number(60).min(5).max(600),
+            </div>
+            <div className="ml-4 text-gray-700">
+              color: param.color('#1f2937'),
+            </div>
+            <div className="text-indigo-600">{"}"}</div>
           </div>
         </div>
       </div>

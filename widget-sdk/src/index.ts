@@ -1,81 +1,140 @@
 // ============================================================
-// SCHEMA TYPES - Định nghĩa tất cả types Tweakpane support
+// PARAMETER BUILDERS - Fluent API như Unity Inspector
 // ============================================================
 
-export type ConfigValue =
-  | string
-  | number
-  | boolean
-  | { x: number; y: number }
-  | { r: number; g: number; b: number; a?: number };
-
-export type WidgetConfig = Record<string, ConfigValue>;
-
-// Base field schema
-interface BaseFieldSchema {
-  key: string;
+interface BaseParamConfig {
+  type: string;
   label?: string;
+  description?: string;
+  default?: any;
+  required?: boolean;
 }
 
-// String input
-export interface StringFieldSchema extends BaseFieldSchema {
-  type: "string";
-  default?: string;
+class BaseParam<T> {
+  protected config: BaseParamConfig;
+
+  constructor(type: string, defaultValue?: T) {
+    this.config = {
+      type,
+      default: defaultValue,
+    };
+  }
+
+  label(text: string) {
+    this.config.label = text;
+    return this;
+  }
+
+  description(text: string) {
+    this.config.description = text;
+    return this;
+  }
+
+  required() {
+    this.config.required = true;
+    return this;
+  }
+
+  toSchema() {
+    return { ...this.config };
+  }
 }
 
-// Number input with constraints
-export interface NumberFieldSchema extends BaseFieldSchema {
-  type: "number";
-  default?: number;
-  min?: number;
-  max?: number;
-  step?: number;
+class StringParam extends BaseParam<string> {
+  constructor(defaultValue?: string) {
+    super("string", defaultValue);
+  }
 }
 
-// Boolean toggle
-export interface BooleanFieldSchema extends BaseFieldSchema {
-  type: "boolean";
-  default?: boolean;
+class NumberParam extends BaseParam<number> {
+  constructor(defaultValue?: number) {
+    super("number", defaultValue);
+  }
+
+  min(value: number) {
+    (this.config as any).min = value;
+    return this;
+  }
+
+  max(value: number) {
+    (this.config as any).max = value;
+    return this;
+  }
+
+  step(value: number) {
+    (this.config as any).step = value;
+    return this;
+  }
 }
 
-// Color picker
-export interface ColorFieldSchema extends BaseFieldSchema {
-  type: "color";
-  default?: string; // hex color "#rrggbb"
+class BooleanParam extends BaseParam<boolean> {
+  constructor(defaultValue?: boolean) {
+    super("boolean", defaultValue);
+  }
 }
 
-// Select/dropdown
-export interface SelectFieldSchema extends BaseFieldSchema {
-  type: "select";
-  default?: string | number;
-  options: Array<{ text: string; value: string | number }>;
+class ColorParam extends BaseParam<string> {
+  constructor(defaultValue?: string) {
+    super("color", defaultValue);
+  }
 }
 
-// 2D Point
-export interface PointFieldSchema extends BaseFieldSchema {
-  type: "point";
-  default?: { x: number; y: number };
-  min?: number;
-  max?: number;
+class SelectParam<T> extends BaseParam<T> {
+  constructor(options: T[], defaultValue?: T) {
+    super("select", defaultValue);
+    (this.config as any).options = options;
+  }
 }
 
-// Folder grouping
-export interface FolderSchema {
-  type: "folder";
-  title: string;
-  expanded?: boolean;
-  fields: ConfigFieldSchema[];
+class FolderParam {
+  private title: string;
+  private fields: Record<string, any>;
+  private isExpanded: boolean;
+
+  constructor(title: string, fields: Record<string, any>) {
+    this.title = title;
+    this.fields = fields;
+    this.isExpanded = true;
+  }
+
+  expanded(value: boolean = true) {
+    this.isExpanded = value;
+    return this;
+  }
+
+  toSchema() {
+    const fieldsSchema: Record<string, any> = {};
+
+    Object.keys(this.fields).forEach((key) => {
+      const field = this.fields[key];
+      fieldsSchema[key] = field.toSchema ? field.toSchema() : field;
+    });
+
+    return {
+      type: "folder",
+      title: this.title,
+      expanded: this.isExpanded,
+      fields: fieldsSchema,
+    };
+  }
 }
 
-// Union type for all field types
-export type ConfigFieldSchema =
-  | StringFieldSchema
-  | NumberFieldSchema
-  | BooleanFieldSchema
-  | ColorFieldSchema
-  | SelectFieldSchema
-  | PointFieldSchema
-  | FolderSchema;
+// ============================================================
+// PUBLIC API
+// ============================================================
+
+export const param = {
+  string: (defaultValue?: string) => new StringParam(defaultValue),
+  number: (defaultValue?: number) => new NumberParam(defaultValue),
+  boolean: (defaultValue?: boolean) => new BooleanParam(defaultValue),
+  color: (defaultValue?: string) => new ColorParam(defaultValue),
+  select: <T>(options: T[], defaultValue?: T) =>
+    new SelectParam(options, defaultValue),
+};
+
+export function folder(title: string, fields: Record<string, any>) {
+  return new FolderParam(title, fields);
+}
 
 // ============================================================
 // WIDGET DEFINITION
@@ -85,179 +144,126 @@ export interface WidgetDefinition {
   name: string;
   version?: string;
   description?: string;
-  defaultConfig: WidgetConfig;
-  configSchema: ConfigFieldSchema[];
+  parameters: Record<string, any>;
 }
 
-// ============================================================
-// MESSAGE TYPES
-// ============================================================
+export function defineWidget(definition: WidgetDefinition) {
+  // Serialize parameters to schema
+  const schema: Record<string, any> = {};
+  const defaults: Record<string, any> = {};
 
-export interface WidgetMessage {
-  type: "WIDGET_READY" | "CONFIG_UPDATE" | "WIDGET_ERROR";
-  payload?: any;
-}
+  const processParams = (params: Record<string, any>, prefix = "") => {
+    Object.keys(params).forEach((key) => {
+      const param = params[key];
+      const fullKey = prefix ? `${prefix}.${key}` : key;
 
-// ============================================================
-// WIDGET SDK CLASS
-// ============================================================
+      if (param.toSchema) {
+        const paramSchema = param.toSchema();
+        schema[fullKey] = paramSchema;
 
-export class WidgetSDK {
-  private config: WidgetConfig;
-  private definition: WidgetDefinition;
-  private isReady: boolean = false;
-
-  constructor(definition: WidgetDefinition) {
-    this.definition = definition;
-    this.config = { ...definition.defaultConfig };
-    this.validateDefinition();
-    this.init();
-  }
-
-  /**
-   * Validate widget definition
-   */
-  private validateDefinition(): void {
-    const { name, defaultConfig, configSchema } = this.definition;
-
-    if (!name || typeof name !== "string") {
-      throw new Error("Widget name is required and must be a string");
-    }
-
-    if (!defaultConfig || typeof defaultConfig !== "object") {
-      throw new Error("defaultConfig is required and must be an object");
-    }
-
-    if (!Array.isArray(configSchema)) {
-      throw new Error("configSchema must be an array");
-    }
-
-    // Validate all schema keys exist in defaultConfig
-    const flattenFields = (fields: ConfigFieldSchema[]): string[] => {
-      return fields.flatMap((field) => {
-        if (field.type === "folder") {
-          return flattenFields(field.fields);
+        if (paramSchema.type === "folder") {
+          // Flatten folder fields
+          const folderFields = paramSchema.fields;
+          Object.keys(folderFields).forEach((fieldKey) => {
+            const fieldSchema = folderFields[fieldKey];
+            schema[`${fullKey}.${fieldKey}`] = fieldSchema;
+            if (fieldSchema.default !== undefined) {
+              defaults[`${fullKey}.${fieldKey}`] = fieldSchema.default;
+            }
+          });
+        } else if (paramSchema.default !== undefined) {
+          defaults[fullKey] = paramSchema.default;
         }
-        return [field.key];
-      });
-    };
-
-    const schemaKeys = flattenFields(configSchema);
-    const configKeys = Object.keys(defaultConfig);
-
-    schemaKeys.forEach((key) => {
-      if (!configKeys.includes(key)) {
-        console.warn(`Schema key "${key}" not found in defaultConfig`);
       }
     });
-  }
+  };
 
-  /**
-   * Initialize SDK - setup message listeners and notify host
-   */
-  private init(): void {
+  processParams(definition.parameters);
+
+  return {
+    name: definition.name,
+    version: definition.version || "1.0.0",
+    description: definition.description,
+    schema,
+    defaults,
+  };
+}
+
+// ============================================================
+// RUNTIME - Widget communication with host
+// ============================================================
+
+export class WidgetRuntime {
+  private static params: any = {};
+  private static listeners: Set<(params: any) => void> = new Set();
+
+  static init() {
     // Listen for messages from host
-    window.addEventListener("message", this.handleMessage.bind(this));
-
-    // Wait for DOM ready before notifying host
-    if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", () => {
-        this.notifyHostReady();
-      });
-    } else {
-      this.notifyHostReady();
-    }
-  }
-
-  /**
-   * Handle messages from host
-   */
-  private handleMessage(event: MessageEvent): void {
-    const message: WidgetMessage = event.data;
-
-    if (message.type === "CONFIG_UPDATE") {
-      this.updateConfig(message.payload);
-    }
-  }
-
-  /**
-   * Notify host that widget is ready
-   */
-  private notifyHostReady(): void {
-    this.sendToHost({
-      type: "WIDGET_READY",
-      payload: {
-        name: this.definition.name,
-        version: this.definition.version,
-        description: this.definition.description,
-        defaultConfig: this.definition.defaultConfig,
-        configSchema: this.definition.configSchema,
-      },
+    window.addEventListener("message", (event) => {
+      if (event.data.type === "PARAMS_UPDATE") {
+        this.params = event.data.payload;
+        this.notifyListeners();
+      }
     });
-    this.isReady = true;
+
+    // Notify host that widget is ready
+    window.addEventListener("DOMContentLoaded", () => {
+      this.sendToHost({ type: "WIDGET_READY" });
+    });
   }
 
-  /**
-   * Update config from host
-   */
-  private updateConfig(newConfig: WidgetConfig): void {
-    this.config = { ...newConfig };
-    this.notifyConfigChange();
-  }
-
-  /**
-   * Send message to host
-   */
-  private sendToHost(message: WidgetMessage): void {
+  static sendToHost(message: any) {
     if (window.parent !== window) {
       window.parent.postMessage(message, "*");
     }
   }
 
-  /**
-   * Dispatch custom event for config changes
-   */
-  private notifyConfigChange(): void {
-    const event = new CustomEvent("widgetConfigChange", {
-      detail: this.config,
-    });
-    window.dispatchEvent(event);
-  }
-
-  /**
-   * Get current config
-   */
-  public getConfig(): WidgetConfig {
-    return { ...this.config };
-  }
-
-  /**
-   * Listen to config changes
-   */
-  public onConfigChange(callback: (config: WidgetConfig) => void): () => void {
-    const handler = (e: Event) => {
-      const customEvent = e as CustomEvent<WidgetConfig>;
-      callback(customEvent.detail);
-    };
-
-    window.addEventListener("widgetConfigChange", handler);
-
-    // Return cleanup function
+  static onParamsChange(callback: (params: any) => void) {
+    this.listeners.add(callback);
+    // Immediately call with current params if available
+    if (Object.keys(this.params).length > 0) {
+      callback(this.params);
+    }
     return () => {
-      window.removeEventListener("widgetConfigChange", handler);
+      this.listeners.delete(callback);
     };
   }
 
-  /**
-   * Report error to host (optional)
-   */
-  public reportError(error: Error): void {
+  private static notifyListeners() {
+    this.listeners.forEach((listener) => listener(this.params));
+  }
+
+  static getParams() {
+    return this.params;
+  }
+
+  static emitEvent(eventName: string, data?: any) {
     this.sendToHost({
-      type: "WIDGET_ERROR",
-      payload: {
-        message: error.message,
-        stack: error.stack,
-      },
+      type: "EVENT",
+      event: eventName,
+      payload: data,
     });
   }
+}
+
+// Auto-init runtime
+WidgetRuntime.init();
+
+// ============================================================
+// REACT HOOK
+// ============================================================
+
+import { useState, useEffect } from "react";
+
+export function useWidgetParams<T = any>(): T | null {
+  const [params, setParams] = useState<T | null>(null);
+
+  useEffect(() => {
+    const unsubscribe = WidgetRuntime.onParamsChange((newParams) => {
+      setParams(newParams as T);
+    });
+    return unsubscribe;
+  }, []);
+
+  return params;
 }
