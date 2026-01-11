@@ -41,14 +41,14 @@ class BaseParam<T> {
 }
 
 class StringParam extends BaseParam<string> {
-  readonly _type = "string" as const; // ← Add type marker
+  readonly _type = "string" as const;
   constructor(defaultValue?: string) {
     super("string", defaultValue);
   }
 }
 
 class NumberParam extends BaseParam<number> {
-  readonly _type = "number" as const; // ← Add type marker
+  readonly _type = "number" as const;
   constructor(defaultValue?: number) {
     super("number", defaultValue);
   }
@@ -70,22 +70,22 @@ class NumberParam extends BaseParam<number> {
 }
 
 class BooleanParam extends BaseParam<boolean> {
-  readonly _type = "boolean" as const; // ← Add type marker
+  readonly _type = "boolean" as const;
   constructor(defaultValue?: boolean) {
     super("boolean", defaultValue);
   }
 }
 
 class ColorParam extends BaseParam<string> {
-  readonly _type = "color" as const; // ← Add type marker
+  readonly _type = "color" as const;
   constructor(defaultValue?: string) {
     super("color", defaultValue);
   }
 }
 
 class SelectParam<T> extends BaseParam<T> {
-  readonly _type = "select" as const; // ← Add type marker
-  readonly _options: T[]; // ← Store options for type inference
+  readonly _type = "select" as const;
+  readonly _options: T[];
 
   constructor(options: T[], defaultValue?: T) {
     super("select", defaultValue);
@@ -97,7 +97,7 @@ class SelectParam<T> extends BaseParam<T> {
 class FolderParam<F extends Record<string, any>> {
   readonly _type = "folder" as const;
   private title: string;
-  public readonly fields: F; // ✅ giữ literal type
+  public readonly fields: F;
   private isExpanded: boolean;
 
   constructor(title: string, fields: F) {
@@ -149,34 +149,9 @@ export function folder<const F extends Record<string, any>>(
 }
 
 // ============================================================
-// HELPER: Flat to Nested conversion
+// TYPE INFERENCE SYSTEM
 // ============================================================
 
-function flatToNested(flat: Record<string, any>): Record<string, any> {
-  const nested: Record<string, any> = {};
-
-  Object.keys(flat).forEach((key) => {
-    const parts = key.split(".");
-    let current = nested;
-
-    for (let i = 0; i < parts.length - 1; i++) {
-      if (!current[parts[i]]) {
-        current[parts[i]] = {};
-      }
-      current = current[parts[i]];
-    }
-
-    current[parts[parts.length - 1]] = flat[key];
-  });
-
-  return nested;
-}
-
-// ============================================================
-// TYPE INFERENCE SYSTEM - Compile-time magic
-// ============================================================
-
-// Extract type from param builders using _type marker
 type InferParamType<T> = T extends { _type: "string" }
   ? string
   : T extends { _type: "number" }
@@ -191,12 +166,10 @@ type InferParamType<T> = T extends { _type: "string" }
   ? InferFolderType<F>
   : never;
 
-// Extract nested type from folder fields
 type InferFolderType<F> = {
   [K in keyof F]: InferParamType<F[K]>;
 };
 
-// Main type extractor for parameters
 type InferParametersType<T> = {
   [K in keyof T]: InferParamType<T[K]>;
 };
@@ -215,63 +188,33 @@ export interface WidgetDefinition<P = any> {
 export function defineWidget<const P extends Record<string, any>>(
   definition: WidgetDefinition<P>
 ) {
-  // Build flat schema for host (Tweakpane)
-  const flatSchema: Record<string, any> = {};
-  const flatDefaults: Record<string, any> = {};
+  // Build schema tree (nested structure)
+  const buildSchema = (params: Record<string, any>): Record<string, any> => {
+    const schema: Record<string, any> = {};
 
-  const processParams = (params: Record<string, any>, prefix = "") => {
     Object.keys(params).forEach((key) => {
       const param = params[key];
-      const fullKey = prefix ? `${prefix}.${key}` : key;
-
       if (param.toSchema) {
-        const paramSchema = param.toSchema();
-
-        if (paramSchema.type === "folder") {
-          flatSchema[fullKey] = paramSchema;
-
-          // Process folder fields
-          const folderFields = paramSchema.fields;
-          Object.keys(folderFields).forEach((fieldKey) => {
-            const fieldSchema = folderFields[fieldKey];
-            const nestedKey = `${fullKey}.${fieldKey}`;
-            flatSchema[nestedKey] = fieldSchema;
-
-            if (fieldSchema.default !== undefined) {
-              flatDefaults[nestedKey] = fieldSchema.default;
-            }
-          });
-        } else {
-          flatSchema[fullKey] = paramSchema;
-          if (paramSchema.default !== undefined) {
-            flatDefaults[fullKey] = paramSchema.default;
-          }
-        }
+        schema[key] = param.toSchema();
       }
     });
+
+    return schema;
   };
 
-  processParams(definition.parameters);
-
-  // Build nested defaults for widget (autocomplete)
-  const nestedDefaults = flatToNested(flatDefaults);
+  const schema = buildSchema(definition.parameters);
 
   return {
     name: definition.name,
     version: definition.version || "1.0.0",
     description: definition.description,
-    // For host: flat structure
-    flatSchema,
-    flatDefaults,
-    // For widget: nested structure (runtime)
-    nestedDefaults,
-    // For TypeScript: parameter definition (compile-time)
-    __parameters: definition.parameters,
+    schema, // ← Pure nested schema
+    __parameters: definition.parameters, // For TypeScript inference
   };
 }
 
 // ============================================================
-// TYPE HELPER - Extract params type from definition
+// TYPE HELPER
 // ============================================================
 
 export type ExtractParams<T> = T extends { __parameters: infer P }
@@ -283,17 +226,15 @@ export type ExtractParams<T> = T extends { __parameters: infer P }
 // ============================================================
 
 export class WidgetRuntime {
-  private static flatParams: Record<string, any> = {};
+  private static params: Record<string, any> = {};
   private static listeners: Set<(params: any) => void> = new Set();
 
   static init() {
     // Listen for messages from host
     window.addEventListener("message", (event) => {
       if (event.data.type === "PARAMS_UPDATE") {
-        this.flatParams = event.data.payload;
-        // Convert flat to nested for widget
-        const nestedParams = flatToNested(this.flatParams);
-        this.notifyListeners(nestedParams);
+        this.params = event.data.payload;
+        this.notifyListeners(this.params);
       }
     });
 
@@ -318,17 +259,16 @@ export class WidgetRuntime {
   static onParamsChange(callback: (params: any) => void) {
     this.listeners.add(callback);
     // Immediately call with current params if available
-    if (Object.keys(this.flatParams).length > 0) {
-      const nestedParams = flatToNested(this.flatParams);
-      callback(nestedParams);
+    if (Object.keys(this.params).length > 0) {
+      callback(this.params);
     }
     return () => {
       this.listeners.delete(callback);
     };
   }
 
-  private static notifyListeners(nestedParams: any) {
-    this.listeners.forEach((listener) => listener(nestedParams));
+  private static notifyListeners(params: any) {
+    this.listeners.forEach((listener) => listener(params));
   }
 
   static emitEvent(eventName: string, data?: any) {

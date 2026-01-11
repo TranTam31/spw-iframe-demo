@@ -11,7 +11,6 @@ interface WidgetDefinition {
   version: string;
   description?: string;
   schema: Record<string, any>;
-  defaults: Record<string, any>;
 }
 
 interface WidgetInfo {
@@ -21,180 +20,160 @@ interface WidgetInfo {
 }
 
 // ============================================================
-// HELPER: Flat to Nested conversion
+// SCHEMA UTILITIES
 // ============================================================
 
-function flatToNested(flat: Record<string, any>): Record<string, any> {
-  const nested: Record<string, any> = {};
+class SchemaProcessor {
+  /**
+   * Extract default values from schema and build nested config object
+   * Schema structure: { key: { type, default, fields?, ... } }
+   */
+  static extractDefaultsFromSchema(
+    schema: Record<string, any>
+  ): Record<string, any> {
+    const config: Record<string, any> = {};
 
-  Object.keys(flat).forEach((key) => {
-    const parts = key.split(".");
-    let current = nested;
-
-    for (let i = 0; i < parts.length - 1; i++) {
-      if (!current[parts[i]]) {
-        current[parts[i]] = {};
-      }
-      current = current[parts[i]];
-    }
-
-    current[parts[parts.length - 1]] = flat[key];
-  });
-
-  return nested;
-}
-
-// ============================================================
-// HELPER: Nested to Flat conversion
-// ============================================================
-
-function nestedToFlat(
-  nested: Record<string, any>,
-  prefix = ""
-): Record<string, any> {
-  const flat: Record<string, any> = {};
-
-  Object.keys(nested).forEach((key) => {
-    const fullKey = prefix ? `${prefix}.${key}` : key;
-    const value = nested[key];
-
-    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
-      Object.assign(flat, nestedToFlat(value, fullKey));
-    } else {
-      flat[fullKey] = value;
-    }
-  });
-
-  return flat;
-}
-
-// ============================================================
-// GENERIC TWEAKPANE SCHEMA PARSER
-// ============================================================
-
-class TweakpaneSchemaParser {
-  private pane: any;
-  private config: Record<string, any>; // Nested structure
-  private onChange: (flatConfig: Record<string, any>) => void;
-  private folders: Map<string, any> = new Map();
-
-  constructor(
-    pane: any,
-    config: Record<string, any>,
-    onChange: (flatConfig: Record<string, any>) => void
-  ) {
-    this.pane = pane;
-    this.config = config; // Store as nested
-    this.onChange = onChange;
-  }
-
-  parse(schema: Record<string, any>) {
-    // Render root level first
     Object.keys(schema).forEach((key) => {
       const field = schema[key];
 
-      // Only process top-level items (no dots in key)
-      if (!key.includes(".")) {
-        if (field.type === "folder") {
-          this.addFolder(key, field, this.pane, [key]);
-        } else {
-          this.addField([key], field, this.pane);
+      if (field.type === "folder") {
+        // Folder: recursively process fields
+        if (field.fields) {
+          config[key] = this.extractDefaultsFromSchema(field.fields);
+        }
+      } else {
+        // Regular field: extract default value
+        if (field.default !== undefined) {
+          config[key] = field.default;
         }
       }
     });
 
-    // Listen to all changes
+    return config;
+  }
+}
+
+// ============================================================
+// TWEAKPANE BUILDER
+// ============================================================
+
+class TweakpaneBuilder {
+  private pane: Pane;
+  private config: Record<string, any>;
+  private onChange: (config: Record<string, any>) => void;
+
+  constructor(
+    pane: Pane,
+    config: Record<string, any>,
+    onChange: (config: Record<string, any>) => void
+  ) {
+    this.pane = pane;
+    this.config = config;
+    this.onChange = onChange;
+  }
+
+  /**
+   * Build Tweakpane UI from schema
+   */
+  build(schema: Record<string, any>) {
+    Object.keys(schema).forEach((key) => {
+      const field = schema[key];
+      this.processField(key, field, this.pane, this.config);
+    });
+
+    // Listen for changes
     this.pane.on("change", () => {
-      // Convert nested back to flat for sending to widget
-      const flatConfig = nestedToFlat(this.config);
-      this.onChange(flatConfig);
+      this.onChange({ ...this.config });
     });
   }
 
-  private addFolder(
-    folderKey: string,
+  private processField(
+    key: string,
+    field: any,
+    parentPane: Pane,
+    parentConfig: Record<string, any>
+  ) {
+    if (field.type === "folder") {
+      this.buildFolder(key, field, parentPane, parentConfig);
+    } else {
+      this.buildControl(key, field, parentPane, parentConfig);
+    }
+  }
+
+  private buildFolder(
+    key: string,
     folderSchema: any,
     parentPane: any,
-    path: string[]
+    parentConfig: Record<string, any>
   ) {
+    // Create folder in Tweakpane
     const folder = parentPane.addFolder({
-      title: folderSchema.title,
+      title: folderSchema.title || key,
       expanded: folderSchema.expanded ?? true,
     });
 
-    this.folders.set(path.join("."), folder);
+    // Ensure config has nested object for this folder
+    if (!parentConfig[key]) {
+      parentConfig[key] = {};
+    }
 
-    // Process fields inside folder.fields (nested structure)
+    // Process all fields inside folder
     if (folderSchema.fields) {
       Object.keys(folderSchema.fields).forEach((fieldKey) => {
         const field = folderSchema.fields[fieldKey];
-        const newPath = [...path, fieldKey];
-
-        if (field.type === "folder") {
-          // Recursively add nested folder
-          this.addFolder(fieldKey, field, folder, newPath);
-        } else {
-          // Add field to this folder
-          this.addField(newPath, field, folder);
-        }
+        this.processField(fieldKey, field, folder, parentConfig[key]);
       });
     }
   }
 
-  private addField(path: string[], field: any, target: any) {
+  private buildControl(
+    key: string,
+    field: any,
+    parentPane: any,
+    parentConfig: Record<string, any>
+  ) {
     const options: any = {
-      label: field.label || path[path.length - 1],
+      label: field.label || key,
     };
 
-    // Navigate to the correct nested level
-    let obj = this.config;
-    for (let i = 0; i < path.length - 1; i++) {
-      if (!obj[path[i]]) {
-        obj[path[i]] = {};
-      }
-      obj = obj[path[i]];
+    // Initialize with default value if not exists
+    if (parentConfig[key] === undefined && field.default !== undefined) {
+      parentConfig[key] = field.default;
     }
 
-    const key = path[path.length - 1];
-
-    // Set default value if not exists
-    if (obj[key] === undefined && field.default !== undefined) {
-      obj[key] = field.default;
-    }
-
+    // Build appropriate control based on type
     switch (field.type) {
       case "string":
-        target.addBinding(obj, key, options);
+        parentPane.addBinding(parentConfig, key, options);
         break;
 
       case "number":
         if (field.min !== undefined) options.min = field.min;
         if (field.max !== undefined) options.max = field.max;
         if (field.step !== undefined) options.step = field.step;
-        target.addBinding(obj, key, options);
+        parentPane.addBinding(parentConfig, key, options);
         break;
 
       case "boolean":
-        target.addBinding(obj, key, options);
+        parentPane.addBinding(parentConfig, key, options);
         break;
 
       case "color":
-        target.addBinding(obj, key, options);
+        parentPane.addBinding(parentConfig, key, options);
         break;
 
       case "select":
         if (field.options) {
-          const selectOptions = field.options.reduce((acc: any, opt: any) => {
+          options.options = field.options.reduce((acc: any, opt: any) => {
             acc[opt] = opt;
             return acc;
           }, {});
-          options.options = selectOptions;
         }
-        target.addBinding(obj, key, options);
+        parentPane.addBinding(parentConfig, key, options);
         break;
 
       default:
-        console.warn(`Unknown field type: ${field.type}`);
+        console.warn(`Unknown field type: ${field.type} for key: ${key}`);
     }
   }
 }
@@ -224,19 +203,18 @@ function WidgetHost({
       if (event.data.type === "WIDGET_READY") {
         const def = event.data.payload;
 
-        if (!def.name || !def.schema || !def.defaults) {
-          setError("Invalid widget definition");
+        if (!def.name || !def.schema) {
+          setError("Invalid widget definition - missing name or schema");
           return;
         }
 
-        console.log("📦 Widget definition:", def);
+        console.log("📦 Widget definition received:", def);
         setWidgetDef(def);
-        setConfig(def.defaults);
         setError(null);
       }
 
       if (event.data.type === "EVENT") {
-        console.log("Widget event:", event.data.event, event.data.payload);
+        console.log("📣 Widget event:", event.data.event, event.data.payload);
       }
     };
 
@@ -254,41 +232,48 @@ function WidgetHost({
     }
 
     try {
+      // Create Tweakpane instance
       const pane = new Pane({
         container: paneRef.current,
         title: widgetDef.name,
       });
       paneInstanceRef.current = pane;
 
-      // Convert flat defaults to nested structure for Tweakpane
-      const nestedConfig = flatToNested(widgetDef.defaults);
-      console.log("🔄 Nested config:", nestedConfig);
+      // Extract initial config from schema defaults
+      const initialConfig = SchemaProcessor.extractDefaultsFromSchema(
+        widgetDef.schema
+      );
+      console.log("🎯 Initial config extracted:", initialConfig);
 
-      const onChange = (flatConfig: Record<string, any>) => {
-        console.log("📤 Sending to widget:", flatConfig);
-        setConfig(flatConfig);
+      // Callback when config changes
+      const handleConfigChange = (newConfig: Record<string, any>) => {
+        console.log("📤 Sending config to widget:", newConfig);
+        setConfig(newConfig);
 
         // Send to widget iframe
         if (iframeRef.current?.contentWindow) {
           iframeRef.current.contentWindow.postMessage(
             {
               type: "PARAMS_UPDATE",
-              payload: flatConfig,
+              payload: newConfig,
             },
             "*"
           );
         }
       };
 
-      // ⭐ Parse schema and auto-generate Tweakpane UI
-      const parser = new TweakpaneSchemaParser(pane, nestedConfig, onChange);
-      parser.parse(widgetDef.schema);
+      // Build Tweakpane UI from schema
+      const builder = new TweakpaneBuilder(
+        pane,
+        initialConfig,
+        handleConfigChange
+      );
+      builder.build(widgetDef.schema);
 
       // Send initial config to widget
-      const initialFlat = nestedToFlat(nestedConfig);
-      setTimeout(() => onChange(initialFlat), 100);
+      setTimeout(() => handleConfigChange(initialConfig), 100);
     } catch (err) {
-      console.error("Tweakpane setup error:", err);
+      console.error("❌ Tweakpane setup error:", err);
       setError(err instanceof Error ? err.message : "Setup failed");
     }
 
@@ -310,11 +295,11 @@ function WidgetHost({
           <ArrowLeft size={20} /> Quay lại
         </button>
 
-        <div className="max-w-2xl mx-auto bg-white rounded-[2rem] shadow-2xl overflow-hidden border border-gray-100">
+        <div className="max-w-2xl mx-auto bg-white rounded-4xl shadow-2xl overflow-hidden border border-gray-100">
           <iframe
             ref={iframeRef}
             src={widget.url}
-            className="w-full h-[600px] border-0"
+            className="w-full h-150 border-0"
             title={widget.name}
             sandbox="allow-scripts allow-same-origin"
           />
@@ -329,12 +314,9 @@ function WidgetHost({
 
         {error && (
           <div className="mt-8 max-w-2xl mx-auto bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
-            <AlertCircle
-              className="text-red-500 flex-shrink-0 mt-0.5"
-              size={20}
-            />
+            <AlertCircle className="text-red-500 shrink-0 mt-0.5" size={20} />
             <div>
-              <div className="font-bold text-red-800">Error</div>
+              <div className="font-bold text-red-800">Lỗi</div>
               <div className="text-sm text-red-600 mt-1">{error}</div>
             </div>
           </div>
@@ -373,8 +355,7 @@ const AVAILABLE_WIDGETS: WidgetInfo[] = [
   {
     id: "countdown",
     name: "Đồng hồ đếm ngược",
-    url: "http://localhost:5174", // Dev mode
-    // url: 'https://countdown-widget.vercel.app', // Production
+    url: "http://localhost:5174",
   },
 ];
 
@@ -401,7 +382,7 @@ export default function App() {
             Unity-inspired parameter system cho Education
           </p>
           <p className="text-sm text-green-600 font-mono">
-            ✓ Fluent API • No eval() • Auto UI generation • Nested Folders
+            ✓ Fluent API • Schema-driven • Auto UI generation
           </p>
         </header>
 

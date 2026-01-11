@@ -1,6 +1,5 @@
 import ReactDOM from "react-dom/client";
 import { useEffect, useState } from "react";
-// import { WidgetSDK, WidgetDefinition } from "widget-sdk";
 import "./index.css";
 
 import {
@@ -72,6 +71,8 @@ const widgetDefinition = defineWidget({
   },
 } as const); // ← 'as const' để preserve literal types
 
+console.log("from widget", widgetDefinition);
+
 // Send definition to host
 setTimeout(() => {
   WidgetRuntime.sendToHost({
@@ -80,8 +81,7 @@ setTimeout(() => {
       name: widgetDefinition.name,
       version: widgetDefinition.version,
       description: widgetDefinition.description,
-      schema: widgetDefinition.flatSchema,
-      defaults: widgetDefinition.flatDefaults,
+      schema: widgetDefinition.schema,
     },
   });
 }, 100);
@@ -117,6 +117,7 @@ type WidgetParams = ExtractParams<typeof widgetDefinition>;
 function App() {
   // ⭐ Params có full autocomplete!
   const params = useWidgetParams<WidgetParams>();
+  console.log("Params from widget:", params);
 
   const [time, setTime] = useState(60);
   const [running, setRunning] = useState(false);
