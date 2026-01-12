@@ -1,5 +1,5 @@
 // ============================================================
-// PARAMETER BUILDERS - Fluent API
+// PARAMETER BUILDERS - Fluent API with visibleIf
 // ============================================================
 
 interface BaseParamConfig {
@@ -8,6 +8,14 @@ interface BaseParamConfig {
   description?: string;
   default?: any;
   required?: boolean;
+  visibleIf?: VisibilityCondition;
+}
+
+interface VisibilityCondition {
+  param: string;
+  equals?: any;
+  notEquals?: any;
+  in?: any[];
 }
 
 class BaseParam<T> {
@@ -32,6 +40,11 @@ class BaseParam<T> {
 
   required() {
     this.config.required = true;
+    return this;
+  }
+
+  visibleIf(condition: VisibilityCondition) {
+    this.config.visibleIf = condition;
     return this;
   }
 
@@ -99,6 +112,7 @@ class FolderParam<F extends Record<string, any>> {
   private title: string;
   public readonly fields: F;
   private isExpanded: boolean;
+  private visibility?: VisibilityCondition;
 
   constructor(title: string, fields: F) {
     this.title = title;
@@ -111,6 +125,11 @@ class FolderParam<F extends Record<string, any>> {
     return this;
   }
 
+  visibleIf(condition: VisibilityCondition) {
+    this.visibility = condition;
+    return this;
+  }
+
   toSchema() {
     const fieldsSchema: Record<string, any> = {};
 
@@ -119,12 +138,18 @@ class FolderParam<F extends Record<string, any>> {
       fieldsSchema[key] = field.toSchema ? field.toSchema() : field;
     });
 
-    return {
+    const schema: any = {
       type: "folder",
       title: this.title,
       expanded: this.isExpanded,
       fields: fieldsSchema,
     };
+
+    if (this.visibility) {
+      schema.visibleIf = this.visibility;
+    }
+
+    return schema;
   }
 }
 
@@ -146,6 +171,19 @@ export function folder<const F extends Record<string, any>>(
   fields: F
 ) {
   return new FolderParam<F>(title, fields);
+}
+
+// ============================================================
+// TYPE-SAFE VISIBILITY HELPER
+// ============================================================
+
+// Helper to create type-safe visibility conditions
+export function when<T>(param: string) {
+  return {
+    equals: (value: T) => ({ param, equals: value }),
+    notEquals: (value: T) => ({ param, notEquals: value }),
+    in: (values: T[]) => ({ param, in: values }),
+  };
 }
 
 // ============================================================
@@ -208,8 +246,8 @@ export function defineWidget<const P extends Record<string, any>>(
     name: definition.name,
     version: definition.version || "1.0.0",
     description: definition.description,
-    schema, // ← Pure nested schema
-    __parameters: definition.parameters, // For TypeScript inference
+    schema,
+    __parameters: definition.parameters,
   };
 }
 
@@ -230,7 +268,6 @@ export class WidgetRuntime {
   private static listeners: Set<(params: any) => void> = new Set();
 
   static init() {
-    // Listen for messages from host
     window.addEventListener("message", (event) => {
       if (event.data.type === "PARAMS_UPDATE") {
         this.params = event.data.payload;
@@ -238,7 +275,6 @@ export class WidgetRuntime {
       }
     });
 
-    // Notify host when ready
     if (document.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", () => {
         this.sendToHost({ type: "WIDGET_READY" });
@@ -258,7 +294,6 @@ export class WidgetRuntime {
 
   static onParamsChange(callback: (params: any) => void) {
     this.listeners.add(callback);
-    // Immediately call with current params if available
     if (Object.keys(this.params).length > 0) {
       callback(this.params);
     }
@@ -280,7 +315,6 @@ export class WidgetRuntime {
   }
 }
 
-// Auto-init runtime
 WidgetRuntime.init();
 
 // ============================================================

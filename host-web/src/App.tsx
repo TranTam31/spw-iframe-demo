@@ -54,49 +54,129 @@ class SchemaProcessor {
 }
 
 // ============================================================
-// TWEAKPANE BUILDER
+// TWEAKPANE BUILDER WITH VISIBILITY SUPPORT
 // ============================================================
 
 class TweakpaneBuilder {
-  private pane: Pane;
+  private pane: any;
   private config: Record<string, any>;
+  private schema: Record<string, any>;
   private onChange: (config: Record<string, any>) => void;
+  private controlsMap: Map<string, any> = new Map(); // Track all controls/folders
 
   constructor(
-    pane: Pane,
+    pane: any,
     config: Record<string, any>,
+    schema: Record<string, any>,
     onChange: (config: Record<string, any>) => void
   ) {
     this.pane = pane;
     this.config = config;
+    this.schema = schema;
     this.onChange = onChange;
   }
 
   /**
-   * Build Tweakpane UI from schema
+   * Build Tweakpane UI from schema with visibility support
    */
-  build(schema: Record<string, any>) {
-    Object.keys(schema).forEach((key) => {
-      const field = schema[key];
-      this.processField(key, field, this.pane, this.config);
+  build() {
+    Object.keys(this.schema).forEach((key) => {
+      const field = this.schema[key];
+      this.processField(key, field, this.pane, this.config, []);
     });
 
-    // Listen for changes
+    // Listen for changes and update visibility
     this.pane.on("change", () => {
+      this.updateVisibility();
       this.onChange({ ...this.config });
     });
+
+    // Initial visibility check
+    this.updateVisibility();
+  }
+
+  /**
+   * Check if a field should be visible based on visibleIf condition
+   */
+  private checkVisibility(visibleIf: any): boolean {
+    if (!visibleIf) return true;
+
+    const { param, equals, notEquals, in: inArray } = visibleIf;
+    const value = this.getConfigValue(param);
+
+    if (equals !== undefined) {
+      return value === equals;
+    }
+
+    if (notEquals !== undefined) {
+      return value !== notEquals;
+    }
+
+    if (inArray !== undefined) {
+      return inArray.includes(value);
+    }
+
+    return true;
+  }
+
+  /**
+   * Get config value by dot notation path
+   */
+  private getConfigValue(path: string): any {
+    const parts = path.split(".");
+    let value = this.config;
+    for (const part of parts) {
+      if (value === undefined || value === null) return undefined;
+      value = value[part];
+    }
+    return value;
+  }
+
+  /**
+   * Update visibility of all controls based on current config
+   */
+  private updateVisibility() {
+    this.controlsMap.forEach((control, path) => {
+      const field = this.getFieldFromPath(path);
+      if (field && field.visibleIf) {
+        const visible = this.checkVisibility(field.visibleIf);
+        control.hidden = !visible;
+      }
+    });
+  }
+
+  /**
+   * Get field schema from dot notation path
+   */
+  private getFieldFromPath(path: string): any {
+    const parts = path.split(".");
+    let current = this.schema;
+
+    for (const part of parts) {
+      if (!current) return null;
+      if (current[part]) {
+        current = current[part];
+      } else if (current.fields && current.fields[part]) {
+        current = current.fields[part];
+      } else {
+        return null;
+      }
+    }
+
+    return current;
   }
 
   private processField(
     key: string,
     field: any,
-    parentPane: Pane,
-    parentConfig: Record<string, any>
+    parentPane: any,
+    parentConfig: Record<string, any>,
+    pathPrefix: string[]
   ) {
     if (field.type === "folder") {
-      this.buildFolder(key, field, parentPane, parentConfig);
+      this.buildFolder(key, field, parentPane, parentConfig, pathPrefix);
     } else {
-      this.buildControl(key, field, parentPane, parentConfig);
+      this.buildControl(key, field, parentPane, parentConfig, pathPrefix);
     }
   }
 
@@ -104,13 +184,17 @@ class TweakpaneBuilder {
     key: string,
     folderSchema: any,
     parentPane: any,
-    parentConfig: Record<string, any>
+    parentConfig: Record<string, any>,
+    pathPrefix: string[]
   ) {
     // Create folder in Tweakpane
     const folder = parentPane.addFolder({
       title: folderSchema.title || key,
       expanded: folderSchema.expanded ?? true,
     });
+
+    const currentPath = [...pathPrefix, key].join(".");
+    this.controlsMap.set(currentPath, folder);
 
     // Ensure config has nested object for this folder
     if (!parentConfig[key]) {
@@ -121,7 +205,10 @@ class TweakpaneBuilder {
     if (folderSchema.fields) {
       Object.keys(folderSchema.fields).forEach((fieldKey) => {
         const field = folderSchema.fields[fieldKey];
-        this.processField(fieldKey, field, folder, parentConfig[key]);
+        this.processField(fieldKey, field, folder, parentConfig[key], [
+          ...pathPrefix,
+          key,
+        ]);
       });
     }
   }
@@ -130,7 +217,8 @@ class TweakpaneBuilder {
     key: string,
     field: any,
     parentPane: any,
-    parentConfig: Record<string, any>
+    parentConfig: Record<string, any>,
+    pathPrefix: string[]
   ) {
     const options: any = {
       label: field.label || key,
@@ -141,25 +229,27 @@ class TweakpaneBuilder {
       parentConfig[key] = field.default;
     }
 
+    let control: any = null;
+
     // Build appropriate control based on type
     switch (field.type) {
       case "string":
-        parentPane.addBinding(parentConfig, key, options);
+        control = parentPane.addBinding(parentConfig, key, options);
         break;
 
       case "number":
         if (field.min !== undefined) options.min = field.min;
         if (field.max !== undefined) options.max = field.max;
         if (field.step !== undefined) options.step = field.step;
-        parentPane.addBinding(parentConfig, key, options);
+        control = parentPane.addBinding(parentConfig, key, options);
         break;
 
       case "boolean":
-        parentPane.addBinding(parentConfig, key, options);
+        control = parentPane.addBinding(parentConfig, key, options);
         break;
 
       case "color":
-        parentPane.addBinding(parentConfig, key, options);
+        control = parentPane.addBinding(parentConfig, key, options);
         break;
 
       case "select":
@@ -169,11 +259,17 @@ class TweakpaneBuilder {
             return acc;
           }, {});
         }
-        parentPane.addBinding(parentConfig, key, options);
+        control = parentPane.addBinding(parentConfig, key, options);
         break;
 
       default:
         console.warn(`Unknown field type: ${field.type} for key: ${key}`);
+    }
+
+    // Store control reference for visibility management
+    if (control) {
+      const currentPath = [...pathPrefix, key].join(".");
+      this.controlsMap.set(currentPath, control);
     }
   }
 }
@@ -266,9 +362,10 @@ function WidgetHost({
       const builder = new TweakpaneBuilder(
         pane,
         initialConfig,
+        widgetDef.schema,
         handleConfigChange
       );
-      builder.build(widgetDef.schema);
+      builder.build();
 
       // Send initial config to widget
       setTimeout(() => handleConfigChange(initialConfig), 100);
@@ -295,11 +392,11 @@ function WidgetHost({
           <ArrowLeft size={20} /> Quay lại
         </button>
 
-        <div className="max-w-2xl mx-auto bg-white rounded-4xl shadow-2xl overflow-hidden border border-gray-100">
+        <div className="max-w-2xl mx-auto bg-white rounded-[2rem] shadow-2xl overflow-hidden border border-gray-100">
           <iframe
             ref={iframeRef}
             src={widget.url}
-            className="w-full h-150 border-0"
+            className="w-full h-[600px] border-0"
             title={widget.name}
             sandbox="allow-scripts allow-same-origin"
           />
@@ -314,7 +411,10 @@ function WidgetHost({
 
         {error && (
           <div className="mt-8 max-w-2xl mx-auto bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
-            <AlertCircle className="text-red-500 shrink-0 mt-0.5" size={20} />
+            <AlertCircle
+              className="text-red-500 flex-shrink-0 mt-0.5"
+              size={20}
+            />
             <div>
               <div className="font-bold text-red-800">Lỗi</div>
               <div className="text-sm text-red-600 mt-1">{error}</div>
