@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Pane } from "tweakpane";
+import * as TweakpaneImagePlugin from "@kitschpatrol/tweakpane-plugin-image";
 import { ArrowLeft, Settings, AlertCircle } from "lucide-react";
 
 // ============================================================
@@ -86,9 +87,12 @@ class TweakpaneBuilder {
     });
 
     // Listen for changes and update visibility
-    this.pane.on("change", () => {
+    this.pane.on("change", async () => {
       this.updateVisibility();
-      this.onChange({ ...this.config });
+
+      // Serialize config before sending (handle HTMLImageElement and blob URLs)
+      const serializedConfig = await this.serializeConfig(this.config);
+      this.onChange(serializedConfig);
     });
 
     // Initial visibility check
@@ -142,6 +146,60 @@ class TweakpaneBuilder {
         const visible = this.checkVisibility(field.visibleIf);
         control.hidden = !visible;
       }
+    });
+  }
+
+  /**
+   * Serialize config for postMessage (convert non-cloneable objects)
+   */
+  async serializeConfig(
+    config: Record<string, any>
+  ): Promise<Record<string, any>> {
+    const serialized: Record<string, any> = {};
+
+    for (const key of Object.keys(config)) {
+      const value = config[key];
+
+      if (value === null || value === undefined) {
+        serialized[key] = value;
+      } else if (value instanceof HTMLImageElement) {
+        // Extract URL from image element
+        const url = value.src || "";
+
+        // If it's a blob URL, convert to base64 data URL
+        if (url.startsWith("blob:")) {
+          try {
+            serialized[key] = await this.blobUrlToDataUrl(url);
+          } catch (err) {
+            console.warn("Failed to convert blob URL:", err);
+            serialized[key] = "";
+          }
+        } else {
+          serialized[key] = url;
+        }
+      } else if (typeof value === "object" && !Array.isArray(value)) {
+        // Recursively serialize nested objects
+        serialized[key] = await this.serializeConfig(value);
+      } else {
+        serialized[key] = value;
+      }
+    }
+
+    return serialized;
+  }
+
+  /**
+   * Convert blob URL to base64 data URL
+   */
+  private async blobUrlToDataUrl(blobUrl: string): Promise<string> {
+    const response = await fetch(blobUrl);
+    const blob = await response.blob();
+
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
     });
   }
 
@@ -252,6 +310,15 @@ class TweakpaneBuilder {
         control = parentPane.addBinding(parentConfig, key, options);
         break;
 
+      case "image":
+        // Image uses special view from plugin
+        options.view = "input-image";
+        if (field.placeholder) {
+          options.placeholder = field.placeholder;
+        }
+        control = parentPane.addBinding(parentConfig, key, options);
+        break;
+
       case "select":
         if (field.options) {
           options.options = field.options.reduce((acc: any, opt: any) => {
@@ -333,6 +400,10 @@ function WidgetHost({
         container: paneRef.current,
         title: widgetDef.name,
       });
+
+      // Register image plugin
+      pane.registerPlugin(TweakpaneImagePlugin);
+
       paneInstanceRef.current = pane;
 
       // Extract initial config from schema defaults
@@ -367,8 +438,11 @@ function WidgetHost({
       );
       builder.build();
 
-      // Send initial config to widget
-      setTimeout(() => handleConfigChange(initialConfig), 100);
+      // Send initial config to widget (need to serialize first)
+      setTimeout(async () => {
+        const serializedConfig = await builder.serializeConfig(initialConfig);
+        handleConfigChange(serializedConfig);
+      }, 100);
     } catch (err) {
       console.error("❌ Tweakpane setup error:", err);
       setError(err instanceof Error ? err.message : "Setup failed");

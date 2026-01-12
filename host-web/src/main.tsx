@@ -6,7 +6,7 @@ import ImageTweakpane from "./ImageTweakpane.tsx";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    {/* <App /> */}
-    <ImageTweakpane />
+    <App />
+    {/* <ImageTweakpane /> */}
   </StrictMode>
 );

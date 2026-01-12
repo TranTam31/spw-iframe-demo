@@ -6,10 +6,10 @@ import {
   defineWidget,
   param,
   folder,
+  when,
   useWidgetParams,
   WidgetRuntime,
   ExtractParams,
-  when,
 } from "widget-sdk";
 
 // ============================================================
@@ -22,7 +22,7 @@ const widgetDefinition = defineWidget({
   description: "Widget đếm ngược thời gian với khả năng tùy chỉnh đầy đủ",
 
   parameters: {
-    // Mode selector - determines visibility of advanced options
+    // Mode selector - controls visibility of advanced features
     mode: param
       .select(["Simple", "Advanced"], "Simple")
       .label("Chế độ")
@@ -49,14 +49,26 @@ const widgetDefinition = defineWidget({
     showMilliseconds: param
       .boolean(false)
       .label("Hiện mili giây")
-      .visibleIf(when("autoStart").equals(true)),
+      .visibleIf(when("mode").equals("Advanced")), // ← Only visible in Advanced mode
 
-    // Appearance folder - nested
+    // Appearance folder
     appearance: folder("Giao diện", {
       colors: folder("Màu sắc", {
         timerColor: param.color("#1f2937").label("Màu chữ đồng hồ"),
         backgroundColor: param.color("#ffffff").label("Màu nền"),
         buttonColor: param.color("#000000").label("Màu nút"),
+      }),
+      background: folder("Ảnh nền", {
+        imageUrl: param
+          .image("")
+          .label("URL ảnh nền")
+          .placeholder("https://example.com/image.jpg"),
+        opacity: param
+          .number(0.3)
+          .min(0)
+          .max(1)
+          .step(0.1)
+          .label("Độ mờ ảnh nền"),
       }),
       layout: folder("Bố cục", {
         fontSize: param.number(80).min(24).max(200).label("Cỡ chữ"),
@@ -64,7 +76,7 @@ const widgetDefinition = defineWidget({
       }),
     }).expanded(true),
 
-    // Advanced folder - only shown when mode = "Advanced"
+    // Advanced folder - only visible when mode = "Advanced"
     advanced: folder("Nâng cao", {
       enableSound: param.boolean(false).label("Bật âm thanh"),
       completionMessage: param
@@ -72,7 +84,7 @@ const widgetDefinition = defineWidget({
         .label("Thông báo hoàn thành"),
     })
       .expanded(false)
-      .visibleIf(when("mode").equals("Advanced")),
+      .visibleIf(when("mode").equals("Advanced")), // ← Folder visibility
   },
 } as const);
 
@@ -128,7 +140,6 @@ function App() {
         if (newTime === 0) {
           setRunning(false);
 
-          // Emit event
           WidgetRuntime.emitEvent("onComplete", {
             duration: params?.duration,
           });
@@ -180,62 +191,79 @@ function App() {
 
   return (
     <div
-      className="flex flex-col items-center justify-center min-h-screen p-8 text-center"
+      className="relative flex flex-col items-center justify-center min-h-screen p-8 text-center overflow-hidden"
       style={{
         backgroundColor: params.appearance.colors.backgroundColor,
         padding: `${params.appearance.layout.padding}px`,
       }}
     >
-      {/* Mode badge */}
-      <div className="absolute top-4 right-4 px-3 py-1 bg-gray-100 rounded-full text-xs text-gray-500">
-        {params.mode}
-      </div>
-
-      <h2 className="text-xl text-gray-500 mb-2 font-medium">{params.title}</h2>
-
-      <div
-        className="font-black mb-10 tabular-nums"
-        style={{
-          color: params.appearance.colors.timerColor,
-          fontSize: `${params.appearance.layout.fontSize}px`,
-        }}
-      >
-        {formatTime()}
-      </div>
-
-      <div className="flex gap-4">
-        <button
-          onClick={() => setRunning(!running)}
-          disabled={time === 0}
-          className="px-8 py-3 text-white rounded-full font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+      {/* Background image layer */}
+      {params.appearance.background.imageUrl && (
+        <div
+          className="absolute inset-0 bg-cover bg-center bg-no-repeat"
           style={{
-            backgroundColor:
-              time === 0 ? "#9ca3af" : params.appearance.colors.buttonColor,
+            backgroundImage: `url(${params.appearance.background.imageUrl})`,
+            opacity: params.appearance.background.opacity,
+            zIndex: 0,
           }}
-        >
-          {running ? "Tạm dừng" : "Bắt đầu"}
-        </button>
-
-        <button
-          onClick={() => {
-            setTime(params.duration);
-            setRunning(false);
-          }}
-          className="p-3 bg-gray-200 text-gray-600 rounded-full hover:bg-gray-300 transition-colors"
-          title="Reset"
-        >
-          Đặt lại
-        </button>
-      </div>
-
-      {/* Completion message */}
-      {time === 0 && (
-        <div className="mt-8 text-2xl font-bold text-green-600 animate-pulse">
-          {params.mode === "Advanced"
-            ? params.advanced?.completionMessage
-            : "⏰ Hết giờ!"}
-        </div>
+        />
       )}
+
+      {/* Content layer */}
+      <div className="relative z-10 flex flex-col items-center">
+        {/* Mode badge */}
+        <div className="absolute top-4 right-4 px-3 py-1 bg-white/80 backdrop-blur-sm rounded-full text-xs text-gray-600 shadow-sm">
+          {params.mode}
+        </div>
+
+        <h2 className="text-xl text-gray-500 mb-2 font-medium drop-shadow-sm">
+          {params.title}
+        </h2>
+
+        <div
+          className="font-black mb-10 tabular-nums drop-shadow-lg"
+          style={{
+            color: params.appearance.colors.timerColor,
+            fontSize: `${params.appearance.layout.fontSize}px`,
+          }}
+        >
+          {formatTime()}
+        </div>
+
+        <div className="flex gap-4">
+          <button
+            onClick={() => setRunning(!running)}
+            disabled={time === 0}
+            className="px-8 py-3 text-white rounded-full font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl"
+            style={{
+              backgroundColor:
+                time === 0 ? "#9ca3af" : params.appearance.colors.buttonColor,
+            }}
+          >
+            {running ? "Tạm dừng" : "Bắt đầu"}
+          </button>
+
+          <button
+            onClick={() => {
+              setTime(params.duration);
+              setRunning(false);
+            }}
+            className="p-3 bg-white/90 backdrop-blur-sm text-gray-600 rounded-full hover:bg-white transition-colors shadow-lg hover:shadow-xl"
+            title="Reset"
+          >
+            Đặt lại
+          </button>
+        </div>
+
+        {/* Completion message */}
+        {time === 0 && (
+          <div className="mt-8 text-2xl font-bold text-green-600 animate-pulse drop-shadow-lg bg-white/80 backdrop-blur-sm px-6 py-3 rounded-2xl">
+            {params.mode === "Advanced"
+              ? params.advanced?.completionMessage
+              : "⏰ Hết giờ!"}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

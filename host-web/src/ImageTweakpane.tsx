@@ -8,11 +8,11 @@ export default function ImageTweakpane() {
     pane.registerPlugin(TweakpaneImagePlugin);
 
     const params = {
-      url: "",
+      Image: "",
     };
 
     // Input ảnh từ URL
-    pane.addBinding(params, "url", {
+    pane.addBinding(params, "Image", {
       view: "input-image",
     });
 

@@ -96,6 +96,18 @@ class ColorParam extends BaseParam<string> {
   }
 }
 
+class ImageParam extends BaseParam<string> {
+  readonly _type = "image" as const;
+  constructor(defaultValue?: string) {
+    super("image", defaultValue);
+  }
+
+  placeholder(text: string) {
+    (this.config as any).placeholder = text;
+    return this;
+  }
+}
+
 class SelectParam<T> extends BaseParam<T> {
   readonly _type = "select" as const;
   readonly _options: T[];
@@ -162,6 +174,7 @@ export const param = {
   number: (defaultValue?: number) => new NumberParam(defaultValue),
   boolean: (defaultValue?: boolean) => new BooleanParam(defaultValue),
   color: (defaultValue?: string) => new ColorParam(defaultValue),
+  image: (defaultValue?: string) => new ImageParam(defaultValue),
   select: <T>(options: T[], defaultValue?: T) =>
     new SelectParam(options, defaultValue),
 };
@@ -197,6 +210,8 @@ type InferParamType<T> = T extends { _type: "string" }
   : T extends { _type: "boolean" }
   ? boolean
   : T extends { _type: "color" }
+  ? string
+  : T extends { _type: "image" }
   ? string
   : T extends { _type: "select"; _options: readonly (infer U)[] }
   ? U
