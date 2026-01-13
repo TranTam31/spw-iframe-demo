@@ -3,7 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite"
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "build:embed": "npm run build && tsx embed-widget.ts",
+    "preview": "vite preview"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.18",
@@ -13,6 +16,7 @@
     "widget-sdk": "file:../widget-sdk"
   },
   "devDependencies": {
+    "@types/node": "^25.0.6",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.2",

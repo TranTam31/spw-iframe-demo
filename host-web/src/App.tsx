@@ -1,7 +1,121 @@
 import { useState, useEffect, useRef } from "react";
 import { Pane } from "tweakpane";
 import * as TweakpaneImagePlugin from "@kitschpatrol/tweakpane-plugin-image";
-import { ArrowLeft, Settings, AlertCircle } from "lucide-react";
+import { ArrowLeft, AlertCircle, Settings } from "lucide-react";
+
+// ============================================================
+// WIDGET LOADER CONFIG - Easy production migration
+// ============================================================
+
+/**
+ * Environment-aware widget configuration
+ *
+ * Development: Load from local files in public/widgets/
+ * Production: Fetch from server/CDN
+ */
+
+const WIDGET_LOADER_CONFIG = {
+  // Change this to 'production' when deploying
+  environment: "development",
+
+  // Development: local file paths
+  development: {
+    // Files are copied from widget/dist/ to public/widgets/
+    basePath: "/widgets",
+    getWidgetPath: (widgetId: string) =>
+      `/widgets/${widgetId}/widget-embedded.html`,
+  },
+
+  // Production: server URLs
+  production: {
+    // Update this to your actual server domain
+    basePath: "https://your-api-domain.com/api/widgets",
+    getWidgetPath: (widgetId: string) =>
+      `https://your-api-domain.com/api/widgets/${widgetId}/html`,
+  },
+};
+
+// ============================================================
+// WIDGET CACHE (Optional: cache loaded HTML to avoid re-fetching)
+// ============================================================
+
+class WidgetCache {
+  private static cache = new Map<string, string>();
+  private static ttl = 1000 * 60 * 60; // 1 hour
+  private static timestamps = new Map<string, number>();
+
+  static set(widgetId: string, html: string) {
+    this.cache.set(widgetId, html);
+    this.timestamps.set(widgetId, Date.now());
+    console.log(`💾 Cached widget: ${widgetId}`);
+  }
+
+  static get(widgetId: string): string | null {
+    const timestamp = this.timestamps.get(widgetId);
+
+    if (!timestamp) return null;
+
+    // Check if cache has expired
+    if (Date.now() - timestamp > this.ttl) {
+      this.cache.delete(widgetId);
+      this.timestamps.delete(widgetId);
+      return null;
+    }
+
+    return this.cache.get(widgetId) || null;
+  }
+
+  static clear(widgetId?: string) {
+    if (widgetId) {
+      this.cache.delete(widgetId);
+      this.timestamps.delete(widgetId);
+    } else {
+      this.cache.clear();
+      this.timestamps.clear();
+    }
+  }
+}
+
+// ============================================================
+// WIDGET HTML LOADER
+// ============================================================
+
+async function loadWidgetHtml(widgetId: string): Promise<string> {
+  const config = WIDGET_LOADER_CONFIG;
+  const isDev = config.environment === "development";
+
+  // Check cache first
+  const cached = WidgetCache.get(widgetId);
+  if (cached) {
+    console.log(`📦 Using cached widget: ${widgetId}`);
+    return cached;
+  }
+
+  try {
+    const path = isDev
+      ? config.development.getWidgetPath(widgetId)
+      : config.production.getWidgetPath(widgetId);
+
+    console.log(`📥 Loading widget from: ${path}`);
+
+    const response = await fetch(path);
+    if (!response.ok) {
+      throw new Error(
+        `Failed to load widget: ${response.status} ${response.statusText}`
+      );
+    }
+
+    const html = await response.text();
+
+    // Cache it
+    WidgetCache.set(widgetId, html);
+
+    return html;
+  } catch (error) {
+    console.error(`❌ Failed to load widget ${widgetId}:`, error);
+    throw error;
+  }
+}
 
 // ============================================================
 // TYPES
@@ -16,7 +130,6 @@ interface WidgetDefinition {
 
 interface WidgetInfo {
   name: string;
-  url: string;
   id: string;
 }
 
@@ -25,10 +138,6 @@ interface WidgetInfo {
 // ============================================================
 
 class SchemaProcessor {
-  /**
-   * Extract default values from schema and build nested config object
-   * Schema structure: { key: { type, default, fields?, ... } }
-   */
   static extractDefaultsFromSchema(
     schema: Record<string, any>
   ): Record<string, any> {
@@ -38,12 +147,10 @@ class SchemaProcessor {
       const field = schema[key];
 
       if (field.type === "folder") {
-        // Folder: recursively process fields
         if (field.fields) {
           config[key] = this.extractDefaultsFromSchema(field.fields);
         }
       } else {
-        // Regular field: extract default value
         if (field.default !== undefined) {
           config[key] = field.default;
         }
@@ -63,7 +170,7 @@ class TweakpaneBuilder {
   private config: Record<string, any>;
   private schema: Record<string, any>;
   private onChange: (config: Record<string, any>) => void;
-  private controlsMap: Map<string, any> = new Map(); // Track all controls/folders
+  private controlsMap: Map<string, any> = new Map();
 
   constructor(
     pane: any,
@@ -77,31 +184,21 @@ class TweakpaneBuilder {
     this.onChange = onChange;
   }
 
-  /**
-   * Build Tweakpane UI from schema with visibility support
-   */
   build() {
     Object.keys(this.schema).forEach((key) => {
       const field = this.schema[key];
       this.processField(key, field, this.pane, this.config, []);
     });
 
-    // Listen for changes and update visibility
     this.pane.on("change", async () => {
       this.updateVisibility();
-
-      // Serialize config before sending (handle HTMLImageElement and blob URLs)
       const serializedConfig = await this.serializeConfig(this.config);
       this.onChange(serializedConfig);
     });
 
-    // Initial visibility check
     this.updateVisibility();
   }
 
-  /**
-   * Check if a field should be visible based on visibleIf condition
-   */
   private checkVisibility(visibleIf: any): boolean {
     if (!visibleIf) return true;
 
@@ -123,9 +220,6 @@ class TweakpaneBuilder {
     return true;
   }
 
-  /**
-   * Get config value by dot notation path
-   */
   private getConfigValue(path: string): any {
     const parts = path.split(".");
     let value = this.config;
@@ -136,9 +230,6 @@ class TweakpaneBuilder {
     return value;
   }
 
-  /**
-   * Update visibility of all controls based on current config
-   */
   private updateVisibility() {
     this.controlsMap.forEach((control, path) => {
       const field = this.getFieldFromPath(path);
@@ -149,9 +240,6 @@ class TweakpaneBuilder {
     });
   }
 
-  /**
-   * Serialize config for postMessage (convert non-cloneable objects)
-   */
   async serializeConfig(
     config: Record<string, any>
   ): Promise<Record<string, any>> {
@@ -163,10 +251,7 @@ class TweakpaneBuilder {
       if (value === null || value === undefined) {
         serialized[key] = value;
       } else if (value instanceof HTMLImageElement) {
-        // Extract URL from image element
         const url = value.src || "";
-
-        // If it's a blob URL, convert to base64 data URL
         if (url.startsWith("blob:")) {
           try {
             serialized[key] = await this.blobUrlToDataUrl(url);
@@ -178,7 +263,6 @@ class TweakpaneBuilder {
           serialized[key] = url;
         }
       } else if (typeof value === "object" && !Array.isArray(value)) {
-        // Recursively serialize nested objects
         serialized[key] = await this.serializeConfig(value);
       } else {
         serialized[key] = value;
@@ -188,9 +272,6 @@ class TweakpaneBuilder {
     return serialized;
   }
 
-  /**
-   * Convert blob URL to base64 data URL
-   */
   private async blobUrlToDataUrl(blobUrl: string): Promise<string> {
     const response = await fetch(blobUrl);
     const blob = await response.blob();
@@ -203,9 +284,6 @@ class TweakpaneBuilder {
     });
   }
 
-  /**
-   * Get field schema from dot notation path
-   */
   private getFieldFromPath(path: string): any {
     const parts = path.split(".");
     let current = this.schema;
@@ -245,7 +323,6 @@ class TweakpaneBuilder {
     parentConfig: Record<string, any>,
     pathPrefix: string[]
   ) {
-    // Create folder in Tweakpane
     const folder = parentPane.addFolder({
       title: folderSchema.title || key,
       expanded: folderSchema.expanded ?? true,
@@ -254,12 +331,10 @@ class TweakpaneBuilder {
     const currentPath = [...pathPrefix, key].join(".");
     this.controlsMap.set(currentPath, folder);
 
-    // Ensure config has nested object for this folder
     if (!parentConfig[key]) {
       parentConfig[key] = {};
     }
 
-    // Process all fields inside folder
     if (folderSchema.fields) {
       Object.keys(folderSchema.fields).forEach((fieldKey) => {
         const field = folderSchema.fields[fieldKey];
@@ -282,14 +357,12 @@ class TweakpaneBuilder {
       label: field.label || key,
     };
 
-    // Initialize with default value if not exists
     if (parentConfig[key] === undefined && field.default !== undefined) {
       parentConfig[key] = field.default;
     }
 
     let control: any = null;
 
-    // Build appropriate control based on type
     switch (field.type) {
       case "string":
         control = parentPane.addBinding(parentConfig, key, options);
@@ -311,7 +384,6 @@ class TweakpaneBuilder {
         break;
 
       case "image":
-        // Image uses special view from plugin
         options.view = "input-image";
         if (field.placeholder) {
           options.placeholder = field.placeholder;
@@ -333,7 +405,6 @@ class TweakpaneBuilder {
         console.warn(`Unknown field type: ${field.type} for key: ${key}`);
     }
 
-    // Store control reference for visibility management
     if (control) {
       const currentPath = [...pathPrefix, key].join(".");
       this.controlsMap.set(currentPath, control);
@@ -355,10 +426,66 @@ function WidgetHost({
   const [widgetDef, setWidgetDef] = useState<WidgetDefinition | null>(null);
   const [config, setConfig] = useState<Record<string, any>>({});
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [iframeReady, setIframeReady] = useState(false);
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const paneRef = useRef<HTMLDivElement>(null);
   const paneInstanceRef = useRef<any>(null);
+  const messageQueueRef = useRef<any[]>([]);
+
+  // Load widget HTML and communicate with iframe
+  useEffect(() => {
+    const loadWidget = async () => {
+      setLoading(true);
+      setError(null);
+      setIframeReady(false);
+
+      try {
+        const htmlContent = await loadWidgetHtml(widget.id);
+
+        // Set srcdoc to load HTML directly
+        if (iframeRef.current) {
+          iframeRef.current.srcdoc = htmlContent;
+        }
+
+        console.log(`✅ Widget HTML loaded for: ${widget.id}`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        setError(message);
+        setLoading(false);
+        console.error(err);
+      }
+    };
+
+    loadWidget();
+  }, [widget.id]);
+
+  // Handle iframe load
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+
+    const handleLoad = () => {
+      console.log("🎬 Iframe loaded successfully");
+      setTimeout(() => {
+        setIframeReady(true);
+        // Flush message queue
+        if (messageQueueRef.current.length > 0) {
+          console.log(
+            `📨 Flushing ${messageQueueRef.current.length} queued messages`
+          );
+          messageQueueRef.current.forEach((msg) => {
+            iframe.contentWindow?.postMessage(msg, "*");
+          });
+          messageQueueRef.current = [];
+        }
+      }, 300);
+    };
+
+    iframe.addEventListener("load", handleLoad);
+    return () => iframe.removeEventListener("load", handleLoad);
+  }, []);
 
   // Listen to widget messages
   useEffect(() => {
@@ -373,11 +500,17 @@ function WidgetHost({
 
         console.log("📦 Widget definition received:", def);
         setWidgetDef(def);
+        setLoading(false);
         setError(null);
       }
 
       if (event.data.type === "EVENT") {
         console.log("📣 Widget event:", event.data.event, event.data.payload);
+      }
+
+      if (event.data.type === "ERROR") {
+        console.error("❌ Widget error:", event.data.payload);
+        setError(event.data.payload?.message || "Widget error");
       }
     };
 
@@ -385,51 +518,48 @@ function WidgetHost({
     return () => window.removeEventListener("message", handleMessage);
   }, []);
 
+  // Helper to send messages
+  const sendMessage = (message: any) => {
+    if (iframeRef.current?.contentWindow && iframeReady) {
+      console.log("📤 Sending to widget:", message.type);
+      iframeRef.current.contentWindow.postMessage(message, "*");
+    } else {
+      console.log("⏳ Queuing message (iframe not ready):", message.type);
+      messageQueueRef.current.push(message);
+    }
+  };
+
   // Setup Tweakpane when widget definition is ready
   useEffect(() => {
     if (!widgetDef || !paneRef.current) return;
 
-    // Dispose old pane
     if (paneInstanceRef.current) {
       paneInstanceRef.current.dispose();
     }
 
     try {
-      // Create Tweakpane instance
       const pane = new Pane({
         container: paneRef.current,
         title: widgetDef.name,
       });
 
-      // Register image plugin
       pane.registerPlugin(TweakpaneImagePlugin);
-
       paneInstanceRef.current = pane;
 
-      // Extract initial config from schema defaults
       const initialConfig = SchemaProcessor.extractDefaultsFromSchema(
         widgetDef.schema
       );
       console.log("🎯 Initial config extracted:", initialConfig);
 
-      // Callback when config changes
       const handleConfigChange = (newConfig: Record<string, any>) => {
-        console.log("📤 Sending config to widget:", newConfig);
+        console.log("🔄 Config changed, sending to widget");
         setConfig(newConfig);
-
-        // Send to widget iframe
-        if (iframeRef.current?.contentWindow) {
-          iframeRef.current.contentWindow.postMessage(
-            {
-              type: "PARAMS_UPDATE",
-              payload: newConfig,
-            },
-            "*"
-          );
-        }
+        sendMessage({
+          type: "PARAMS_UPDATE",
+          payload: newConfig,
+        });
       };
 
-      // Build Tweakpane UI from schema
       const builder = new TweakpaneBuilder(
         pane,
         initialConfig,
@@ -438,7 +568,6 @@ function WidgetHost({
       );
       builder.build();
 
-      // Send initial config to widget (need to serialize first)
       setTimeout(async () => {
         const serializedConfig = await builder.serializeConfig(initialConfig);
         handleConfigChange(serializedConfig);
@@ -454,7 +583,7 @@ function WidgetHost({
         paneInstanceRef.current = null;
       }
     };
-  }, [widgetDef]);
+  }, [widgetDef, iframeReady]);
 
   return (
     <div className="min-h-screen bg-[#f8fafc] flex">
@@ -469,14 +598,13 @@ function WidgetHost({
         <div className="max-w-2xl mx-auto bg-white rounded-[2rem] shadow-2xl overflow-hidden border border-gray-100">
           <iframe
             ref={iframeRef}
-            src={widget.url}
             className="w-full h-[600px] border-0"
             title={widget.name}
             sandbox="allow-scripts allow-same-origin"
           />
         </div>
 
-        {!widgetDef && !error && (
+        {loading && !error && (
           <div className="text-center mt-8 text-gray-400 flex items-center justify-center gap-2">
             <div className="animate-spin h-5 w-5 border-2 border-gray-300 border-t-gray-600 rounded-full" />
             Đang tải widget...
@@ -512,7 +640,7 @@ function WidgetHost({
               )}
             </div>
             <div className="p-3 bg-indigo-50 rounded-xl text-[10px] text-indigo-400 font-mono italic">
-              Powered by Tweakpane v4
+              Environment: {WIDGET_LOADER_CONFIG.environment}
             </div>
           </div>
         )}
@@ -527,9 +655,8 @@ function WidgetHost({
 
 const AVAILABLE_WIDGETS: WidgetInfo[] = [
   {
-    id: "countdown",
+    id: "countdown-timer",
     name: "Đồng hồ đếm ngược",
-    url: "http://localhost:5174",
   },
 ];
 
@@ -553,10 +680,10 @@ export default function App() {
             Widget Studio
           </h1>
           <p className="text-gray-500 mb-2">
-            Unity-inspired parameter system cho Education
+            Flexible parameter system cho widgets
           </p>
           <p className="text-sm text-green-600 font-mono">
-            ✓ Fluent API • Schema-driven • Auto UI generation
+            ✓ Self-contained HTML • Schema-driven • Auto UI generation
           </p>
         </header>
 
