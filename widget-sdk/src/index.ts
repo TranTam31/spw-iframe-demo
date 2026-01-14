@@ -232,9 +232,6 @@ type InferParametersType<T> = {
 // ============================================================
 
 export interface WidgetDefinition<P = any> {
-  name: string;
-  version?: string;
-  description?: string;
   parameters: P;
 }
 
@@ -258,9 +255,6 @@ export function defineWidget<const P extends Record<string, any>>(
   const schema = buildSchema(definition.parameters);
 
   return {
-    name: definition.name,
-    version: definition.version || "1.0.0",
-    description: definition.description,
     schema,
     __parameters: definition.parameters,
   };
@@ -349,4 +343,16 @@ export function useWidgetParams<T = any>(): T | null {
   }, []);
 
   return params;
+}
+
+export function useWidgetState<T>(paramValue: T | undefined, defaultValue: T) {
+  const [state, setState] = useState<T>(defaultValue);
+
+  useEffect(() => {
+    if (paramValue !== undefined) {
+      setState(paramValue);
+    }
+  }, [paramValue]);
+
+  return [state, setState] as const;
 }

@@ -10,6 +10,7 @@ import {
   useWidgetParams,
   WidgetRuntime,
   ExtractParams,
+  useWidgetState,
 } from "widget-sdk";
 
 // ============================================================
@@ -17,10 +18,6 @@ import {
 // ============================================================
 
 const widgetDefinition = defineWidget({
-  name: "Đồng hồ đếm ngược",
-  version: "1.0.0",
-  description: "Widget đếm ngược thời gian với khả năng tùy chỉnh đầy đủ",
-
   parameters: {
     // Mode selector - controls visibility of advanced features
     mode: param
@@ -88,16 +85,11 @@ const widgetDefinition = defineWidget({
   },
 } as const);
 
-console.log("📦 Widget definition:", widgetDefinition);
-
 // Send definition to host
 setTimeout(() => {
   WidgetRuntime.sendToHost({
     type: "WIDGET_READY",
     payload: {
-      name: widgetDefinition.name,
-      version: widgetDefinition.version,
-      description: widgetDefinition.description,
       schema: widgetDefinition.schema,
     },
   });
@@ -115,17 +107,9 @@ type WidgetParams = ExtractParams<typeof widgetDefinition>;
 
 function App() {
   const params = useWidgetParams<WidgetParams>();
-  console.log("📥 Params received:", params);
 
-  const [time, setTime] = useState(60);
-  const [running, setRunning] = useState(false);
-
-  // Initialize with params
-  useEffect(() => {
-    if (!params) return;
-    setTime(params.duration);
-    setRunning(params.autoStart);
-  }, [params?.duration, params?.autoStart]);
+  const [time, setTime] = useWidgetState(params?.duration, 60);
+  const [running, setRunning] = useWidgetState(params?.autoStart, false);
 
   // Countdown logic
   useEffect(() => {

@@ -554,6 +554,7 @@ function WidgetHost({
       const handleConfigChange = (newConfig: Record<string, any>) => {
         console.log("🔄 Config changed, sending to widget");
         setConfig(newConfig);
+        console.log(config);
         sendMessage({
           type: "PARAMS_UPDATE",
           payload: newConfig,
