@@ -16,7 +16,7 @@ import { ArrowLeft, AlertCircle, Settings } from "lucide-react";
 
 const WIDGET_LOADER_CONFIG = {
   // Change this to 'production' when deploying
-  environment: "development",
+  environment: "production",
 
   // Development: local file paths
   development: {
@@ -31,7 +31,7 @@ const WIDGET_LOADER_CONFIG = {
     // Update this to your actual server domain
     basePath: "https://your-api-domain.com/api/widgets",
     getWidgetPath: (widgetId: string) =>
-      `https://your-api-domain.com/api/widgets/${widgetId}/html`,
+      `https://ttrantam.github.io/test-github-actions/21111778322/index.html`,
   },
 };
 
@@ -101,7 +101,7 @@ async function loadWidgetHtml(widgetId: string): Promise<string> {
     const response = await fetch(path);
     if (!response.ok) {
       throw new Error(
-        `Failed to load widget: ${response.status} ${response.statusText}`
+        `Failed to load widget: ${response.status} ${response.statusText}`,
       );
     }
 
@@ -139,7 +139,7 @@ interface WidgetInfo {
 
 class SchemaProcessor {
   static extractDefaultsFromSchema(
-    schema: Record<string, any>
+    schema: Record<string, any>,
   ): Record<string, any> {
     const config: Record<string, any> = {};
 
@@ -176,7 +176,7 @@ class TweakpaneBuilder {
     pane: any,
     config: Record<string, any>,
     schema: Record<string, any>,
-    onChange: (config: Record<string, any>) => void
+    onChange: (config: Record<string, any>) => void,
   ) {
     this.pane = pane;
     this.config = config;
@@ -241,7 +241,7 @@ class TweakpaneBuilder {
   }
 
   async serializeConfig(
-    config: Record<string, any>
+    config: Record<string, any>,
   ): Promise<Record<string, any>> {
     const serialized: Record<string, any> = {};
 
@@ -307,7 +307,7 @@ class TweakpaneBuilder {
     field: any,
     parentPane: any,
     parentConfig: Record<string, any>,
-    pathPrefix: string[]
+    pathPrefix: string[],
   ) {
     if (field.type === "folder") {
       this.buildFolder(key, field, parentPane, parentConfig, pathPrefix);
@@ -321,7 +321,7 @@ class TweakpaneBuilder {
     folderSchema: any,
     parentPane: any,
     parentConfig: Record<string, any>,
-    pathPrefix: string[]
+    pathPrefix: string[],
   ) {
     const folder = parentPane.addFolder({
       title: folderSchema.title || key,
@@ -351,7 +351,7 @@ class TweakpaneBuilder {
     field: any,
     parentPane: any,
     parentConfig: Record<string, any>,
-    pathPrefix: string[]
+    pathPrefix: string[],
   ) {
     const options: any = {
       label: field.label || key,
@@ -473,7 +473,7 @@ function WidgetHost({
         // Flush message queue
         if (messageQueueRef.current.length > 0) {
           console.log(
-            `📨 Flushing ${messageQueueRef.current.length} queued messages`
+            `📨 Flushing ${messageQueueRef.current.length} queued messages`,
           );
           messageQueueRef.current.forEach((msg) => {
             iframe.contentWindow?.postMessage(msg, "*");
@@ -547,7 +547,7 @@ function WidgetHost({
       paneInstanceRef.current = pane;
 
       const initialConfig = SchemaProcessor.extractDefaultsFromSchema(
-        widgetDef.schema
+        widgetDef.schema,
       );
       console.log("🎯 Initial config extracted:", initialConfig);
 
@@ -565,7 +565,7 @@ function WidgetHost({
         pane,
         initialConfig,
         widgetDef.schema,
-        handleConfigChange
+        handleConfigChange,
       );
       builder.build();
 
