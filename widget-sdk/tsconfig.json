@@ -5,7 +5,9 @@
     "moduleResolution": "Bundler",
     "declaration": true,
     "outDir": "dist",
-    "strict": true
+    "strict": true,
+    "jsx": "react-jsx",
+    "skipLibCheck": true
   },
   "include": ["src"]
 }

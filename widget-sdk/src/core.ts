@@ -1,7 +1,6 @@
 // ============================================================
-// PARAMETER BUILDERS - Fluent API with visibleIf
+// TYPES
 // ============================================================
-
 interface BaseParamConfig {
   type: string;
   label?: string;
@@ -18,6 +17,29 @@ interface VisibilityCondition {
   in?: any[];
 }
 
+// NEW: Evaluation result structure
+export interface EvaluationResult {
+  isCorrect: boolean;
+  score: number;
+  maxScore: number;
+  feedback?: string;
+  details?: any;
+}
+
+// NEW: Submission structure
+export interface Submission {
+  answer: any;
+  evaluation: EvaluationResult;
+  metadata: {
+    timeSpent?: number;
+    attemptCount?: number;
+    timestamp: number;
+  };
+}
+
+// ============================================================
+// PARAM CLASSES
+// ============================================================
 class BaseParam<T> {
   protected config: BaseParamConfig;
 
@@ -144,7 +166,6 @@ class FolderParam<F extends Record<string, any>> {
 
   toSchema() {
     const fieldsSchema: Record<string, any> = {};
-
     Object.keys(this.fields).forEach((key) => {
       const field = this.fields[key];
       fieldsSchema[key] = field.toSchema ? field.toSchema() : field;
@@ -168,7 +189,6 @@ class FolderParam<F extends Record<string, any>> {
 // ============================================================
 // PUBLIC API
 // ============================================================
-
 export const param = {
   string: (defaultValue?: string) => new StringParam(defaultValue),
   number: (defaultValue?: number) => new NumberParam(defaultValue),
@@ -186,10 +206,6 @@ export function folder<const F extends Record<string, any>>(
   return new FolderParam<F>(title, fields);
 }
 
-// ============================================================
-// TYPE-SAFE VISIBILITY HELPER
-// ============================================================
-
 export function when<T>(param: string) {
   return {
     equals: (value: T) => ({ param, equals: value }),
@@ -199,9 +215,8 @@ export function when<T>(param: string) {
 }
 
 // ============================================================
-// TYPE INFERENCE SYSTEM
+// TYPE INFERENCE
 // ============================================================
-
 type InferParamType<T> = T extends { _type: "string" }
   ? string
   : T extends { _type: "number" }
@@ -227,22 +242,28 @@ type InferParametersType<T> = {
 };
 
 // ============================================================
-// WIDGET DEFINITION
+// WIDGET DEFINITION WITH EVALUATION
 // ============================================================
+export interface WidgetEvaluator<TAnswer = any> {
+  // Evaluate student's answer and return result
+  evaluate: (answer: TAnswer) => EvaluationResult | Promise<EvaluationResult>;
+
+  // Optional: Validate answer before submission
+  validateAnswer?: (answer: TAnswer) => boolean | string;
+}
 
 export function defineWidget<const P extends Record<string, any>>(
   parameters: P,
+  evaluator?: WidgetEvaluator,
 ) {
   const buildSchema = (params: Record<string, any>): Record<string, any> => {
     const schema: Record<string, any> = {};
-
     Object.keys(params).forEach((key) => {
       const param = params[key];
       if (param.toSchema) {
         schema[key] = param.toSchema();
       }
     });
-
     return schema;
   };
 
@@ -250,6 +271,7 @@ export function defineWidget<const P extends Record<string, any>>(
 
   return {
     schema,
+    evaluator,
     __parameters: parameters,
   };
 }
@@ -259,18 +281,38 @@ export type ExtractParams<T> = T extends { __parameters: infer P }
   : never;
 
 // ============================================================
-// RUNTIME - Widget communication with host
+// WIDGET RUNTIME - Communication with Host
 // ============================================================
-
 export class WidgetRuntime {
   private static params: Record<string, any> = {};
   private static listeners: Set<(params: any) => void> = new Set();
+  private static modeListeners: Set<
+    (mode: "practice" | "review", data: Submission | null) => void
+  > = new Set();
+  private static mode: "practice" | "review" = "practice";
+  private static reviewData: Submission | null = null;
+  private static startTime: number = Date.now();
 
   static init() {
     window.addEventListener("message", (event) => {
       if (event.data.type === "PARAMS_UPDATE") {
         this.params = event.data.payload;
         this.notifyListeners(this.params);
+      }
+
+      // NEW: Handle review mode
+      if (event.data.type === "REVIEW_MODE") {
+        console.log(
+          "🔍 WidgetRuntime: Switching to REVIEW mode",
+          event.data.payload,
+        );
+        this.mode = "review";
+        this.reviewData = event.data.payload.submission;
+        this.params = event.data.payload.config;
+
+        // Notify both params and mode listeners
+        this.notifyListeners(this.params);
+        this.notifyModeListeners();
       }
     });
 
@@ -283,6 +325,9 @@ export class WidgetRuntime {
         this.sendToHost({ type: "WIDGET_READY" });
       }, 0);
     }
+
+    // Reset start time
+    this.startTime = Date.now();
   }
 
   static sendToHost(message: any) {
@@ -305,12 +350,68 @@ export class WidgetRuntime {
     this.listeners.forEach((listener) => listener(params));
   }
 
+  private static notifyModeListeners() {
+    this.modeListeners.forEach((listener) =>
+      listener(this.mode, this.reviewData),
+    );
+  }
+
   static emitEvent(eventName: string, data?: any) {
     this.sendToHost({
       type: "EVENT",
       event: eventName,
       payload: data,
     });
+  }
+
+  // NEW: Submit answer with evaluation
+  static async submit(answer: any, evaluation: EvaluationResult) {
+    const timeSpent = Date.now() - this.startTime;
+
+    const submission: Submission = {
+      answer,
+      evaluation,
+      metadata: {
+        timeSpent,
+        timestamp: Date.now(),
+      },
+    };
+
+    console.log("📤 Submitting to host:", submission);
+
+    this.sendToHost({
+      type: "SUBMIT",
+      payload: submission,
+    });
+
+    return submission;
+  }
+
+  // NEW: Get current mode
+  static getMode(): "practice" | "review" {
+    return this.mode;
+  }
+
+  // NEW: Get review data (only available in review mode)
+  static getReviewData(): Submission | null {
+    return this.reviewData;
+  }
+
+  // NEW: Check if in review mode
+  static isReviewMode(): boolean {
+    return this.mode === "review";
+  }
+
+  // NEW: Subscribe to mode changes
+  static onModeChange(
+    callback: (mode: "practice" | "review", data: Submission | null) => void,
+  ) {
+    this.modeListeners.add(callback);
+    // Immediately call with current state
+    callback(this.mode, this.reviewData);
+    return () => {
+      this.modeListeners.delete(callback);
+    };
   }
 }
 
