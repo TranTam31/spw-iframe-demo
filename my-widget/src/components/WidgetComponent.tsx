@@ -18,9 +18,6 @@ export function WidgetComponent() {
     useSubmission<MultipleChoiceAnswer>();
   const { isReviewMode, reviewData } = useReviewMode();
 
-  // Track start time for calculating time spent
-  const [startTime] = useState(Date.now());
-
   // Selected answer
   const [selected, setSelected] = useState<AnswerKey | null>(null);
 
@@ -43,13 +40,11 @@ export function WidgetComponent() {
   const handleSubmit = async () => {
     if (!selected || showResult || isReviewMode) return;
 
-    const timeSpent = Date.now() - startTime;
     const isCorrect = selected === params.answers.correct;
 
     // Create answer object
     const answer: MultipleChoiceAnswer = {
       selected,
-      timeSpent,
     };
 
     // Create evaluation

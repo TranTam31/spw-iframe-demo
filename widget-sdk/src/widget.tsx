@@ -46,17 +46,6 @@ export function useSubmission<TAnswer = any>() {
       return null;
     }
 
-    // Validate answer if validator exists
-    if (evaluator.validateAnswer) {
-      const validation = evaluator.validateAnswer(answer);
-      if (validation !== true) {
-        const errorMsg =
-          typeof validation === "string" ? validation : "Invalid answer";
-        console.error("❌ Answer validation failed:", errorMsg);
-        return null;
-      }
-    }
-
     setIsSubmitting(true);
 
     try {

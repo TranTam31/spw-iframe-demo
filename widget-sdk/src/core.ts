@@ -247,9 +247,6 @@ type InferParametersType<T> = {
 export interface WidgetEvaluator<TAnswer = any> {
   // Evaluate student's answer and return result
   evaluate: (answer: TAnswer) => EvaluationResult | Promise<EvaluationResult>;
-
-  // Optional: Validate answer before submission
-  validateAnswer?: (answer: TAnswer) => boolean | string;
 }
 
 export function defineWidget<const P extends Record<string, any>>(

@@ -10,19 +10,10 @@ import {
 // Answer type for this widget
 export interface MultipleChoiceAnswer {
   selected: "A" | "B" | "C" | "D";
-  timeSpent: number;
 }
 
 // Evaluator for multiple choice
 const multipleChoiceEvaluator: WidgetEvaluator<MultipleChoiceAnswer> = {
-  // Validate answer before submission
-  validateAnswer: (answer) => {
-    if (!answer.selected) {
-      return "Vui lòng chọn một đáp án trước khi nộp bài";
-    }
-    return true;
-  },
-
   // Evaluate the answer
   evaluate: (answer) => {
     // Note: We need access to params here
