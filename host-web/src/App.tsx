@@ -442,26 +442,12 @@ function WidgetHost({
 
     setIsReviewMode(true);
 
+    // Gửi config + answer (không gửi evaluation!)
     sendMessage({
-      type: "REVIEW_MODE",
+      type: "PARAMS_UPDATE",
       payload: {
-        config,
-        submission: {
-          answer: {
-            selected: "A",
-            timeSpent: 10493,
-          },
-          evaluation: {
-            isCorrect: true,
-            score: 100,
-            maxScore: 100,
-            feedback: "",
-          },
-          metadata: {
-            timeSpent: 10713,
-            timestamp: 1769267308917,
-          },
-        },
+        ...config,
+        __answer: submission.answer, // Chỉ gửi answer
       },
     });
   };
@@ -641,12 +627,12 @@ function WidgetHost({
                   </strong>
                 </div>
 
-                {submission.metadata.timeSpent && (
+                {/* {submission.metadata.timeSpent && (
                   <div className="text-slate-600">
                     Thời gian:{" "}
                     {Math.round(submission.metadata.timeSpent / 1000)}s
                   </div>
-                )}
+                )} */}
               </div>
             </div>
 

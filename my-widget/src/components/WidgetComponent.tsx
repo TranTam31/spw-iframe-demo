@@ -1,29 +1,71 @@
 import "../index.css";
 
-import { useState, useEffect } from "react";
-import {
-  useWidgetParams,
-  useWidgetState,
-  useSubmission,
-  useReviewMode,
-} from "@joymath/widget-sdk";
-import { MultipleChoiceAnswer, WidgetParams } from "../definition";
-import { EvaluationResult } from "@joymath/widget-sdk";
+import { useWidgetParams, useSubmission } from "@joymath/widget-sdk";
+import type { WidgetParams, WidgetAnswer } from "../definition";
 
 type AnswerKey = "A" | "B" | "C" | "D";
 
 export function WidgetComponent() {
   const params = useWidgetParams<WidgetParams>();
-  const { submit, isSubmitting, submission } =
-    useSubmission<MultipleChoiceAnswer>();
-  const { isReviewMode, reviewData } = useReviewMode();
 
-  // Selected answer
-  const [selected, setSelected] = useState<AnswerKey | null>(null);
+  // useSubmission hook - handles everything!
+  const {
+    answer,
+    setAnswer,
+    result,
+    submit,
+    isLocked,
+    canSubmit,
+    isSubmitting,
+  } = useSubmission<WidgetAnswer>({
+    // Evaluate function - VIẾT NGAY ĐÂY!
+    // TypeScript TỰ ĐỘNG enforce return type
+    evaluate: (ans) => {
+      const isCorrect = ans.selected === params.answers.correct;
 
-  // Show result state
-  const [showResult, setShowResult] = useState(false);
-  const [result, setResult] = useState<EvaluationResult | null>(null);
+      return {
+        // BẮT BUỘC có 3 fields này - TypeScript check!
+        isCorrect,
+        score: isCorrect ? 100 : 0,
+        maxScore: 100,
+
+        // Optional fields
+        feedback: isCorrect
+          ? "🎉 Chính xác!"
+          : params.settings.showFeedback && params.settings.feedback
+            ? params.settings.feedback
+            : `❌ Sai rồi! Đáp án đúng là ${params.answers.correct}`,
+      };
+    },
+  });
+
+  // Helper function for button styling
+  const getButtonClass = (key: AnswerKey): string => {
+    const isSelected = answer?.selected === key;
+    const isCorrect = key === params.answers.correct;
+    const showResult = isLocked; // Show result when locked (review mode)
+
+    let className =
+      "w-full text-left px-6 py-4 rounded-xl border-2 transition-all font-medium ";
+
+    if (!showResult) {
+      // Practice mode - chưa submit
+      className += isSelected
+        ? "bg-indigo-50 border-indigo-400 text-indigo-900"
+        : "bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-700";
+    } else {
+      // Review mode hoặc đã submit
+      if (isCorrect) {
+        className += "bg-green-50 border-green-400 text-green-900";
+      } else if (isSelected && !isCorrect) {
+        className += "bg-red-50 border-red-400 text-red-900";
+      } else {
+        className += "bg-slate-50 border-slate-200 text-slate-500";
+      }
+    }
+
+    return className;
+  };
 
   const answers: Record<AnswerKey, string> = {
     A: params.answers.a,
@@ -33,62 +75,15 @@ export function WidgetComponent() {
   };
 
   const handleSelect = (key: AnswerKey) => {
-    if (showResult || isReviewMode) return;
-    setSelected(key);
+    if (isLocked) return;
+    setAnswer({ selected: key });
   };
-
-  const handleSubmit = async () => {
-    if (!selected || showResult || isReviewMode) return;
-
-    const isCorrect = selected === params.answers.correct;
-
-    // Create answer object
-    const answer: MultipleChoiceAnswer = {
-      selected,
-    };
-
-    // Create evaluation
-    const evaluation: EvaluationResult = {
-      isCorrect,
-      score: isCorrect ? 100 : 0,
-      maxScore: 100,
-      feedback: isCorrect
-        ? "🎉 Chính xác!"
-        : params.settings.showFeedback && params.settings.feedback
-          ? params.settings.feedback
-          : "❌ Sai rồi! Đáp án đúng là " + params.answers.correct,
-    };
-
-    // Submit via SDK
-    const submissionResult = await submit(answer);
-
-    if (submissionResult) {
-      setResult(evaluation);
-      setShowResult(true);
-    }
-  };
-
-  // Update UI when review mode changes
-  useEffect(() => {
-    console.log("🎯 Widget: Review mode changed", { isReviewMode, reviewData });
-
-    if (isReviewMode && reviewData) {
-      setSelected(reviewData.answer.selected);
-      setResult(reviewData.evaluation);
-      setShowResult(true);
-    } else {
-      // Reset when exiting review mode
-      setSelected(null);
-      setResult(null);
-      setShowResult(false);
-    }
-  }, [isReviewMode, reviewData]);
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6 bg-gradient-to-br from-slate-50 to-slate-100">
       <div className="w-full max-w-2xl">
         {/* Review Mode Badge */}
-        {isReviewMode && (
+        {isLocked && (
           <div className="mb-4 text-center">
             <span className="inline-block px-4 py-2 bg-blue-100 text-blue-700 rounded-full text-sm font-medium">
               📋 Chế độ xem lại
@@ -106,46 +101,27 @@ export function WidgetComponent() {
           {/* Answers */}
           <div className="space-y-3 mb-8">
             {(Object.keys(answers) as AnswerKey[]).map((key) => {
-              const isSelected = selected === key;
+              const isSelected = answer?.selected === key;
               const isCorrect = key === params.answers.correct;
-              const shouldHighlight = showResult;
-
-              let className =
-                "w-full text-left px-6 py-4 rounded-xl border-2 transition-all font-medium";
-
-              if (!shouldHighlight && !isReviewMode) {
-                // Practice mode, before submit
-                className += isSelected
-                  ? " bg-indigo-50 border-indigo-400 text-indigo-900"
-                  : " bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-700";
-              } else {
-                // After submit or review mode
-                if (isCorrect) {
-                  className += " bg-green-50 border-green-400 text-green-900";
-                } else if (isSelected && !isCorrect) {
-                  className += " bg-red-50 border-red-400 text-red-900";
-                } else {
-                  className += " bg-slate-50 border-slate-200 text-slate-500";
-                }
-              }
+              const showResult = isLocked;
 
               return (
                 <button
                   key={key}
                   onClick={() => handleSelect(key)}
-                  disabled={showResult || isReviewMode}
-                  className={className}
+                  disabled={isLocked}
+                  className={getButtonClass(key)}
                 >
                   <div className="flex items-center gap-3">
                     <span className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center font-bold text-sm">
                       {key}
                     </span>
                     <span className="flex-1">{answers[key]}</span>
-                    {shouldHighlight && isCorrect && (
-                      <span className="text-green-600">✓</span>
+                    {showResult && isCorrect && (
+                      <span className="text-green-600 text-xl">✓</span>
                     )}
-                    {shouldHighlight && isSelected && !isCorrect && (
-                      <span className="text-red-600">✗</span>
+                    {showResult && isSelected && !isCorrect && (
+                      <span className="text-red-600 text-xl">✗</span>
                     )}
                   </div>
                 </button>
@@ -154,10 +130,10 @@ export function WidgetComponent() {
           </div>
 
           {/* Submit Button */}
-          {!showResult && !isReviewMode && (
+          {!isLocked && (
             <button
-              onClick={handleSubmit}
-              disabled={!selected || isSubmitting}
+              onClick={submit}
+              disabled={!canSubmit || isSubmitting}
               className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold py-4 px-6 rounded-xl transition-colors"
             >
               {isSubmitting ? "Đang nộp bài..." : "Nộp bài"}
@@ -165,9 +141,9 @@ export function WidgetComponent() {
           )}
 
           {/* Result */}
-          {showResult && result && (
+          {result && isLocked && (
             <div
-              className={`p-6 rounded-xl ${
+              className={`p-6 rounded-xl mt-8 ${
                 result.isCorrect
                   ? "bg-green-50 border-2 border-green-200"
                   : "bg-red-50 border-2 border-red-200"
@@ -201,22 +177,6 @@ export function WidgetComponent() {
                   </div>
                 )}
               </div>
-
-              {/* Metadata in review mode */}
-              {isReviewMode && reviewData && (
-                <div className="mt-4 pt-4 border-t border-slate-200 text-xs text-slate-600 space-y-1">
-                  <div>
-                    ⏱️ Thời gian làm bài:{" "}
-                    {Math.round(reviewData.metadata.timeSpent! / 1000)}s
-                  </div>
-                  <div>
-                    📅 Thời điểm nộp:{" "}
-                    {new Date(reviewData.metadata.timestamp).toLocaleString(
-                      "vi-VN",
-                    )}
-                  </div>
-                </div>
-              )}
             </div>
           )}
         </div>

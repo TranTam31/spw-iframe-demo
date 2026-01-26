@@ -1,18 +1,23 @@
-import { useState, useEffect, createContext, useContext } from "react";
+import {
+  useState,
+  useEffect,
+  createContext,
+  useContext,
+  useMemo,
+  useCallback,
+} from "react";
 import ReactDOM from "react-dom/client";
 import {
   ExtractParams,
   WidgetRuntime,
   EvaluationResult,
   Submission,
-  WidgetEvaluator,
 } from "./core";
 
 // ============================================================
 // WIDGET PARAMS CONTEXT
 // ============================================================
 const WidgetParamsContext = createContext<any>(null);
-const WidgetEvaluatorContext = createContext<WidgetEvaluator | null>(null);
 
 export function useWidgetParams<T = any>(): T {
   const params = useContext(WidgetParamsContext);
@@ -24,6 +29,111 @@ export function useWidgetParams<T = any>(): T {
   return params as T;
 }
 
+// ============================================================
+// SUBMISSION HOOK - Main API
+// ============================================================
+export interface SubmissionConfig<TAnswer> {
+  evaluate: (answer: TAnswer) => {
+    isCorrect: boolean;
+    score: number;
+    maxScore: number;
+    feedback?: string;
+    details?: any;
+  };
+}
+
+export interface SubmissionHookResult<TAnswer> {
+  answer: TAnswer | undefined;
+  setAnswer: (answer: TAnswer) => void;
+  result: EvaluationResult | null;
+  submit: () => Promise<void>;
+  isLocked: boolean;
+  canSubmit: boolean;
+  isSubmitting: boolean;
+}
+
+export function useSubmission<TAnswer = any>(
+  config: SubmissionConfig<TAnswer>,
+): SubmissionHookResult<TAnswer> {
+  // Get initial answer from runtime (if in review mode)
+  const [initialAnswer, setInitialAnswer] = useState<TAnswer | undefined>(
+    () => WidgetRuntime.getInitialAnswer<TAnswer>() || undefined,
+  );
+
+  // Listen for answer changes from host
+  useEffect(() => {
+    const unsubscribe = WidgetRuntime.onAnswerChange((answer) => {
+      console.log("📥 Initial answer received:", answer);
+      setInitialAnswer(answer);
+    });
+    return unsubscribe;
+  }, []);
+
+  // Answer state - initialized with initialAnswer if exists
+  const [answer, setAnswer] = useState<TAnswer | undefined>(initialAnswer);
+
+  // Update answer when initialAnswer changes
+  useEffect(() => {
+    if (initialAnswer !== undefined) {
+      setAnswer(initialAnswer);
+    }
+  }, [initialAnswer]);
+
+  // Submission state
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Auto-compute result whenever answer changes
+  const result = useMemo(() => {
+    if (!answer) return null;
+
+    try {
+      const evaluation = config.evaluate(answer);
+      return evaluation;
+    } catch (error) {
+      console.error("❌ Evaluation error:", error);
+      return null;
+    }
+  }, [answer, config.evaluate]);
+
+  // Submit function
+  const submit = useCallback(async () => {
+    if (!answer || !result || isLocked) {
+      console.warn("⚠️ Cannot submit: missing answer, result, or locked");
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      await WidgetRuntime.submit(answer, result);
+      console.log("✅ Submission successful");
+    } catch (error) {
+      console.error("❌ Submission failed:", error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [answer, result]);
+
+  // Locked if has initialAnswer (review mode)
+  const isLocked = initialAnswer !== undefined;
+
+  // Can submit if has answer and not locked
+  const canSubmit = !!answer && !isLocked && !isSubmitting;
+
+  return {
+    answer,
+    setAnswer,
+    result,
+    submit,
+    isLocked,
+    canSubmit,
+    isSubmitting,
+  };
+}
+
+// ============================================================
+// LEGACY HOOK - for compatibility
+// ============================================================
 export function useWidgetState<T>(paramValue: T | undefined, defaultValue: T) {
   const [state, setState] = useState<T>(defaultValue);
   useEffect(() => {
@@ -34,66 +144,6 @@ export function useWidgetState<T>(paramValue: T | undefined, defaultValue: T) {
   return [state, setState] as const;
 }
 
-// NEW: Hook for submission
-export function useSubmission<TAnswer = any>() {
-  const evaluator = useContext(WidgetEvaluatorContext);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submission, setSubmission] = useState<Submission | null>(null);
-
-  const submit = async (answer: TAnswer): Promise<Submission | null> => {
-    if (!evaluator) {
-      console.error("❌ No evaluator provided in widget definition");
-      return null;
-    }
-
-    setIsSubmitting(true);
-
-    try {
-      // Evaluate the answer
-      const evaluation = await evaluator.evaluate(answer);
-
-      // Submit to host
-      const result = await WidgetRuntime.submit(answer, evaluation);
-      setSubmission(result);
-
-      return result;
-    } catch (error) {
-      console.error("❌ Submission failed:", error);
-      return null;
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  return {
-    submit,
-    isSubmitting,
-    submission,
-  };
-}
-
-// NEW: Hook for review mode
-export function useReviewMode() {
-  const [isReviewMode, setIsReviewMode] = useState(false);
-  const [reviewData, setReviewData] = useState<Submission | null>(null);
-
-  useEffect(() => {
-    // Subscribe to mode changes
-    const unsubscribe = WidgetRuntime.onModeChange((mode, data) => {
-      console.log("🔄 useReviewMode: Mode changed to", mode, data);
-      setIsReviewMode(mode === "review");
-      setReviewData(data);
-    });
-
-    return unsubscribe;
-  }, []);
-
-  return {
-    isReviewMode,
-    reviewData,
-  };
-}
-
 // ============================================================
 // CREATE WIDGET - Main API
 // ============================================================
@@ -102,9 +152,9 @@ interface CreateWidgetConfig<T> {
   component: React.ComponentType;
 }
 
-export function createWidget<
-  T extends { schema: any; __parameters: any; evaluator?: WidgetEvaluator },
->(config: CreateWidgetConfig<T>) {
+export function createWidget<T extends { schema: any; __parameters: any }>(
+  config: CreateWidgetConfig<T>,
+) {
   type WidgetParams = ExtractParams<T>;
 
   console.log("📦 Widget definition:", config.definition);
@@ -115,17 +165,17 @@ export function createWidget<
       type: "WIDGET_READY",
       payload: {
         schema: config.definition.schema,
-        hasEvaluator: !!config.definition.evaluator,
       },
     });
   }, 100);
 
-  // Wrapper component that provides params and evaluator via context
+  // Wrapper component that provides params via context
   function WidgetWrapper() {
     const [params, setParams] = useState<WidgetParams | null>(null);
 
     useEffect(() => {
       const unsubscribe = WidgetRuntime.onParamsChange((newParams) => {
+        console.log("📥 Params received:", newParams);
         setParams(newParams as WidgetParams);
       });
       return unsubscribe;
@@ -141,17 +191,16 @@ export function createWidget<
 
     return (
       <WidgetParamsContext.Provider value={params}>
-        <WidgetEvaluatorContext.Provider
-          value={config.definition.evaluator || null}
-        >
-          <config.component />
-        </WidgetEvaluatorContext.Provider>
+        <config.component />
       </WidgetParamsContext.Provider>
     );
   }
 
   // Render the widget
-  ReactDOM.createRoot(document.getElementById("root")!).render(
-    <WidgetWrapper />,
-  );
+  const root = document.getElementById("root");
+  if (root) {
+    ReactDOM.createRoot(root).render(<WidgetWrapper />);
+  } else {
+    console.error("❌ Root element not found");
+  }
 }

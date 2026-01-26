@@ -3,36 +3,13 @@ import {
   param,
   folder,
   type ExtractParams,
-  type WidgetEvaluator,
-  type EvaluationResult,
+  type ExtractAnswer,
 } from "@joymath/widget-sdk";
 
-// Answer type for this widget
-export interface MultipleChoiceAnswer {
-  selected: "A" | "B" | "C" | "D";
-}
-
-// Evaluator for multiple choice
-const multipleChoiceEvaluator: WidgetEvaluator<MultipleChoiceAnswer> = {
-  // Evaluate the answer
-  evaluate: (answer) => {
-    // Note: We need access to params here
-    // In real implementation, this would be passed or accessed differently
-    // For now, we'll handle this in the component
-
-    const evaluation: EvaluationResult = {
-      isCorrect: false, // Will be set by component
-      score: 0,
-      maxScore: 100,
-      feedback: "",
-    };
-
-    return evaluation;
-  },
-};
-
-export const widgetDefinition = defineWidget(
-  {
+// Widget definition - chỉ define schema
+export const widgetDefinition = defineWidget({
+  // Parameters - config từ giáo viên
+  parameters: {
     question: param.string("Câu hỏi của bạn là gì?").label("Câu hỏi"),
 
     answers: folder("Đáp án", {
@@ -40,7 +17,6 @@ export const widgetDefinition = defineWidget(
       b: param.string("Đáp án B").label("B"),
       c: param.string("Đáp án C").label("C"),
       d: param.string("Đáp án D").label("D"),
-
       correct: param.select(["A", "B", "C", "D"], "A").label("Đáp án đúng"),
     }),
 
@@ -51,8 +27,14 @@ export const widgetDefinition = defineWidget(
         .label("Giải thích")
         .visibleIf({ param: "settings.showFeedback", equals: true }),
     }).expanded(false),
-  } as const,
-  multipleChoiceEvaluator,
-);
+  },
 
+  // Answer schema - structure của câu trả lời
+  answer: {
+    selected: param.select(["A", "B", "C", "D"]),
+  },
+} as const);
+
+// Type inference
 export type WidgetParams = ExtractParams<typeof widgetDefinition>;
+export type WidgetAnswer = ExtractAnswer<typeof widgetDefinition>;
