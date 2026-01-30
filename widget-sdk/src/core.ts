@@ -22,8 +22,6 @@ export interface EvaluationResult {
   isCorrect: boolean;
   score: number;
   maxScore: number;
-  feedback?: string;
-  details?: any;
 }
 
 // Submission structure sent to host
@@ -295,6 +293,15 @@ export class WidgetRuntime {
           const { __answer, ...params } = payload;
           this.params = params;
         } else {
+          // Không có __answer → exit review mode
+          if (this.initialAnswer !== null) {
+            console.log(
+              "🔙 WidgetRuntime: Clearing initialAnswer (exit review mode)",
+            );
+            this.initialAnswer = null;
+            this.notifyAnswerListeners(); // Notify với null
+          }
+
           this.params = payload;
         }
 

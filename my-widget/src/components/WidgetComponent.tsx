@@ -18,23 +18,13 @@ export function WidgetComponent() {
     canSubmit,
     isSubmitting,
   } = useSubmission<WidgetAnswer>({
-    // Evaluate function - VIẾT NGAY ĐÂY!
-    // TypeScript TỰ ĐỘNG enforce return type
     evaluate: (ans) => {
       const isCorrect = ans.selected === params.answers.correct;
 
       return {
-        // BẮT BUỘC có 3 fields này - TypeScript check!
         isCorrect,
         score: isCorrect ? 100 : 0,
         maxScore: 100,
-
-        // Optional fields
-        feedback: isCorrect
-          ? "🎉 Chính xác!"
-          : params.settings.showFeedback && params.settings.feedback
-            ? params.settings.feedback
-            : `❌ Sai rồi! Đáp án đúng là ${params.answers.correct}`,
       };
     },
   });
@@ -167,15 +157,6 @@ export function WidgetComponent() {
                 >
                   Điểm: {result.score}/{result.maxScore}
                 </div>
-                {result.feedback && (
-                  <div
-                    className={`mt-4 text-sm ${
-                      result.isCorrect ? "text-green-800" : "text-red-800"
-                    }`}
-                  >
-                    {result.feedback}
-                  </div>
-                )}
               </div>
             </div>
           )}

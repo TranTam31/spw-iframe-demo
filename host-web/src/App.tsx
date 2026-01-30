@@ -23,13 +23,6 @@ interface Submission {
     isCorrect: boolean;
     score: number;
     maxScore: number;
-    feedback?: string;
-    details?: any;
-  };
-  metadata: {
-    timeSpent?: number;
-    attemptCount?: number;
-    timestamp: number;
   };
 }
 
@@ -457,18 +450,14 @@ function WidgetHost({
     console.log("🔙 Exiting review mode");
     setIsReviewMode(false);
 
-    // Reload iframe to reset widget state
-    if (iframeRef.current) {
-      const currentUrl = iframeRef.current.src;
-      iframeRef.current.src = "";
-      setTimeout(() => {
-        if (iframeRef.current) {
-          iframeRef.current.src = currentUrl;
-        }
-      }, 50);
-    }
+    // Chỉ cần gửi lại config KHÔNG CÓ __answer
+    // Widget sẽ tự reset về practice mode
+    sendMessage({
+      type: "PARAMS_UPDATE",
+      payload: config, // Config gốc, không có __answer
+    });
 
-    // Clear submission to allow new attempt
+    // Clear submission để có thể submit lại
     setSubmission(null);
   };
 
@@ -626,13 +615,6 @@ function WidgetHost({
                     {submission.evaluation.maxScore}
                   </strong>
                 </div>
-
-                {/* {submission.metadata.timeSpent && (
-                  <div className="text-slate-600">
-                    Thời gian:{" "}
-                    {Math.round(submission.metadata.timeSpent / 1000)}s
-                  </div>
-                )} */}
               </div>
             </div>
 
@@ -652,10 +634,6 @@ function WidgetHost({
                 ← Quay lại chế độ làm bài
               </button>
             )}
-
-            <div className="text-xs text-slate-500 pt-2 border-t border-slate-200">
-              💾 Dữ liệu đã được log ra console
-            </div>
           </div>
         )}
       </div>

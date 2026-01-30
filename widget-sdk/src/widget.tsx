@@ -37,8 +37,6 @@ export interface SubmissionConfig<TAnswer> {
     isCorrect: boolean;
     score: number;
     maxScore: number;
-    feedback?: string;
-    details?: any;
   };
 }
 
@@ -64,7 +62,13 @@ export function useSubmission<TAnswer = any>(
   useEffect(() => {
     const unsubscribe = WidgetRuntime.onAnswerChange((answer) => {
       console.log("📥 Initial answer received:", answer);
-      setInitialAnswer(answer);
+      // Nếu answer = null/undefined → exit review mode
+      if (answer === null || answer === undefined) {
+        console.log("🔙 Exiting review mode - clearing answer");
+        setInitialAnswer(undefined);
+      } else {
+        setInitialAnswer(answer);
+      }
     });
     return unsubscribe;
   }, []);
@@ -76,6 +80,9 @@ export function useSubmission<TAnswer = any>(
   useEffect(() => {
     if (initialAnswer !== undefined) {
       setAnswer(initialAnswer);
+    } else {
+      // Clear answer when exiting review mode
+      setAnswer(undefined);
     }
   }, [initialAnswer]);
 
