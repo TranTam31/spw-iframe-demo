@@ -4,6 +4,10 @@ import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  server: {
+    host: true, // 👈 expose
+    port: 5173,
+  },
 
   build: {
     outDir: "dist",
@@ -31,7 +35,7 @@ export default defineConfig({
 
   define: {
     "process.env.WIDGET_ID": JSON.stringify(
-      process.env.WIDGET_ID || "unknown-widget"
+      process.env.WIDGET_ID || "unknown-widget",
     ),
   },
 });

@@ -269,6 +269,75 @@ export type ExtractAnswer<T> = T extends { __answer: infer A }
   ? InferParametersType<A>
   : never;
 
+interface WidgetBridge {
+  sendToHost(message: any): void;
+  onMessageFromHost(callback: (message: any) => void): () => void;
+}
+
+class UniversalBridge implements WidgetBridge {
+  private listeners: Set<(message: any) => void> = new Set();
+
+  constructor() {
+    // Lắng nghe từ iframe/postMessage (Web)
+    window.addEventListener("message", (event) => {
+      this.listeners.forEach((cb) => cb(event.data));
+    });
+
+    // Expose handler cho native gọi
+    (window as any).handleMessageFromNative = (messageJson: string) => {
+      try {
+        const message = JSON.parse(messageJson);
+        this.listeners.forEach((cb) => cb(message));
+      } catch (error) {
+        console.error("Parse error:", error);
+      }
+    };
+  }
+
+  sendToHost(message: any): void {
+    const messageJson = JSON.stringify(message);
+
+    // 1. Try iframe/postMessage (Web)
+    if (window.parent !== window) {
+      window.parent.postMessage(message, "*");
+      return;
+    }
+
+    // 2. Try React Native/Expo
+    if ((window as any).ReactNativeWebView) {
+      (window as any).ReactNativeWebView.postMessage(messageJson);
+      return;
+    }
+
+    // 3. Try Flutter
+    if ((window as any).FlutterChannel) {
+      (window as any).FlutterChannel.postMessage(messageJson);
+      return;
+    }
+
+    // 4. Try Android
+    if ((window as any).Android) {
+      (window as any).Android.postMessage(messageJson);
+      return;
+    }
+
+    // 5. Try iOS
+    if ((window as any).webkit?.messageHandlers?.widgetHandler) {
+      (window as any).webkit.messageHandlers.widgetHandler.postMessage(
+        messageJson,
+      );
+      return;
+    }
+
+    console.warn("No bridge found");
+  }
+
+  onMessageFromHost(callback: (message: any) => void): () => void {
+    this.listeners.add(callback);
+    return () => this.listeners.delete(callback);
+  }
+}
+
 // ============================================================
 // WIDGET RUNTIME - Communication with Host
 // ============================================================
@@ -279,10 +348,13 @@ export class WidgetRuntime {
   private static initialAnswer: any = null;
   private static answerListeners: Set<(answer: any) => void> = new Set();
 
+  private static bridge = new UniversalBridge();
+
   static init() {
-    window.addEventListener("message", (event) => {
-      if (event.data.type === "PARAMS_UPDATE") {
-        const payload = event.data.payload;
+    // ✅ CHỈ LẮNG NGHE QUA BRIDGE (xóa window.addEventListener cũ)
+    this.bridge.onMessageFromHost((message) => {
+      if (message.type === "PARAMS_UPDATE") {
+        const payload = message.payload;
 
         // Check if payload contains __answer
         if (payload.__answer !== undefined) {
@@ -309,6 +381,7 @@ export class WidgetRuntime {
       }
     });
 
+    // Send WIDGET_READY signal
     if (document.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", () => {
         this.sendToHost({ type: "WIDGET_READY" });
@@ -320,10 +393,9 @@ export class WidgetRuntime {
     }
   }
 
+  // ✅ SỬA: Dùng bridge thay vì window.parent.postMessage
   static sendToHost(message: any) {
-    if (window.parent !== window) {
-      window.parent.postMessage(message, "*");
-    }
+    this.bridge.sendToHost(message);
   }
 
   static onParamsChange(callback: (params: any) => void) {
